@@ -48,7 +48,7 @@ export default function AdminProducts() {
       const mapped = allProducts.map((p) => ({
         ...p,
         name: p.name || p.title || '',
-        price: typeof p.price === 'string' ? parseFloat(p.price.replace('$', '')) || 0 : p.price || 0,
+        price: typeof p.price === 'string' ? parseFloat(p.price.replace(/[^0-9.]/g, '')) || 0 : p.price || 0,
         image_url: p.image_url || p.image || '',
         categories: p.categories || { name: p.category || '' },
       }));
@@ -328,7 +328,7 @@ export default function AdminProducts() {
                     </td>
 
                     <td className="px-6 py-4 font-bold text-[#2e1f3b]">
-                      ${typeof product.price === 'number' ? product.price.toFixed(2) : product.price || '0.00'}
+                      ₹{typeof product.price === 'number' ? product.price.toLocaleString('en-IN') : String(product.price || '0').replace('$', '₹')}
                     </td>
 
                     <td className="px-6 py-4">

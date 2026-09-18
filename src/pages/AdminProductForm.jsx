@@ -85,9 +85,9 @@ export default function AdminProductForm() {
               description: prodData.full_description || prodData.description || '',
               category_id: initialCategory,
               brand: prodData.brand || '',
-              price: prodData.price !== null ? String(prodData.price).replace('$', '') : '',
+              price: prodData.price !== null ? String(prodData.price).replace(/[^0-9.]/g, '') : '',
               original_price:
-                prodData.original_price !== null ? String(prodData.original_price).replace('$', '') : '',
+                prodData.original_price !== null ? String(prodData.original_price).replace(/[^0-9.]/g, '') : '',
               discount: prodData.discount !== null ? String(prodData.discount) : '',
               image_url: prodData.image_url || prodData.image || '',
               amazon_url: prodData.amazon_url || prodData.affiliate_url || '',
@@ -246,7 +246,7 @@ export default function AdminProductForm() {
         category: formData.category_id,
         category_id: formData.category_id,
         brand: formData.brand.trim() || 'Lavs Studio',
-        price: formData.price ? parseFloat(formData.price) : 29.99,
+        price: formData.price ? parseFloat(formData.price) : 999,
         original_price: formData.original_price ? parseFloat(formData.original_price) : null,
         discount: formData.discount ? parseFloat(formData.discount) : null,
         image_url: finalImageUrl || 'https://images.unsplash.com/photo-1523240795612-9a054b0db644?auto=format&fit=crop&w=800&q=80',
@@ -525,28 +525,28 @@ export default function AdminProductForm() {
             <div className="pt-4 grid gap-5 md:grid-cols-2">
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-[#2e1f3b] mb-1">
-                  Price ($)
+                  Price (₹)
                 </label>
                 <input
                   type="number"
-                  step="0.01"
+                  step="1"
                   value={formData.price}
                   onChange={(e) => setFormData((prev) => ({ ...prev, price: e.target.value }))}
-                  placeholder="29.99"
+                  placeholder="999"
                   className="w-full rounded-xl border border-[#e9d5ff] bg-[#faf4fb] px-4 py-2.5 text-sm font-semibold text-[#2e1f3b] focus:border-[#f472b6] focus:outline-none"
                 />
               </div>
 
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-[#2e1f3b] mb-1">
-                  Original Price ($)
+                  Original Price (₹)
                 </label>
                 <input
                   type="number"
-                  step="0.01"
+                  step="1"
                   value={formData.original_price}
                   onChange={(e) => setFormData((prev) => ({ ...prev, original_price: e.target.value }))}
-                  placeholder="49.99"
+                  placeholder="1499"
                   className="w-full rounded-xl border border-[#e9d5ff] bg-[#faf4fb] px-4 py-2.5 text-sm font-semibold text-[#2e1f3b] focus:border-[#f472b6] focus:outline-none"
                 />
               </div>

@@ -58,7 +58,7 @@ export default function ProductCard({ product }) {
             <span className="text-xl font-bold text-[#2e1f3b]">{product.price}</span>
             {product.original_price && (
               <span className="ml-2 text-xs text-[#2e1f3b]/40 line-through">
-                ${parseFloat(product.original_price).toFixed(2)}
+                ₹{parseFloat(String(product.original_price).replace(/[^0-9.]/g, '')).toLocaleString('en-IN')}
               </span>
             )}
             <p className="text-[10px] text-[#2e1f3b]/40 font-light mt-0.5">

@@ -112,8 +112,18 @@ function normalizeProduct(row) {
   const catName = row.categories?.name || row.category || row.category_name || '';
   const catSlug = row.categories?.slug || (catName ? catName.toLowerCase().replace(/\s+/g, '-') : '');
 
-  const priceNum = parseFloat(row.price);
-  const priceFormatted = !isNaN(priceNum) ? `$${priceNum.toFixed(2)}` : (row.price ? String(row.price) : '');
+  const rawPriceStr = row.price !== undefined && row.price !== null ? String(row.price) : '';
+  const priceNum = parseFloat(rawPriceStr.replace(/[^0-9.]/g, ''));
+  
+  let priceFormatted = '';
+  if (!isNaN(priceNum) && priceNum > 0) {
+    priceFormatted = `₹${priceNum.toLocaleString('en-IN')}`;
+  } else if (rawPriceStr) {
+    priceFormatted = rawPriceStr.replace('$', '₹');
+    if (!priceFormatted.startsWith('₹') && !priceFormatted.startsWith('Rs')) {
+      priceFormatted = `₹${priceFormatted}`;
+    }
+  }
 
   return {
     id: row.id ?? row.slug ?? row.name ?? row.title,

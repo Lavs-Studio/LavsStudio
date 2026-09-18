@@ -27,8 +27,8 @@ export default function ProductEditModal({ isOpen, onClose, product, onSave }) {
         id: product.id || '',
         name: product.title || product.name || '',
         category: product.category || 'Fashion',
-        price: product.price ? String(product.price).replace('$', '') : '',
-        original_price: product.original_price ? String(product.original_price).replace('$', '') : '',
+        price: product.price ? String(product.price).replace(/[^0-9.]/g, '') : '',
+        original_price: product.original_price ? String(product.original_price).replace(/[^0-9.]/g, '') : '',
         description: product.description || '',
         image: product.image || product.image_url || '',
         amazon_url: product.amazon_url || product.affiliate_url || product.amazonLink || '',
@@ -181,13 +181,13 @@ export default function ProductEditModal({ isOpen, onClose, product, onSave }) {
             {/* Current Price */}
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-[#2e1f3b]/70 mb-1.5">
-                Price ($) *
+                Price (₹) *
               </label>
               <input
                 type="number"
-                step="0.01"
+                step="1"
                 required
-                placeholder="49.99"
+                placeholder="999"
                 value={formData.price}
                 onChange={(e) => setFormData((prev) => ({ ...prev, price: e.target.value }))}
                 className="w-full rounded-2xl border border-[#e9d5ff] bg-white px-4 py-3 text-sm text-[#2e1f3b] outline-none focus:border-[#ec4899]"
@@ -197,12 +197,12 @@ export default function ProductEditModal({ isOpen, onClose, product, onSave }) {
             {/* Original Price */}
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-[#2e1f3b]/70 mb-1.5">
-                Original Price ($)
+                Original Price (₹)
               </label>
               <input
                 type="number"
-                step="0.01"
-                placeholder="79.99"
+                step="1"
+                placeholder="1499"
                 value={formData.original_price}
                 onChange={(e) => setFormData((prev) => ({ ...prev, original_price: e.target.value }))}
                 className="w-full rounded-2xl border border-[#e9d5ff] bg-white px-4 py-3 text-sm text-[#2e1f3b] outline-none focus:border-[#ec4899]"
