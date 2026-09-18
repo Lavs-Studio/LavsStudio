@@ -22,6 +22,14 @@ npm run build
 ## GitHub Pages deployment
 This project is configured for GitHub Pages with the Vite base path set to `/LavsStudio/`.
 
+## Supabase setup
+Create a `.env.local` file from `.env.example` and set these values:
+
+- `VITE_SUPABASE_URL`: your Supabase project URL from Project Settings → API → Project URL.
+- `VITE_SUPABASE_ANON_KEY`: your Supabase public anon key from Project Settings → API → Project API keys → `anon` public key.
+
+Keep the `service_role` key out of the frontend. Use it only on trusted server-side code, never in Vite or GitHub Pages.
+
 ### Deploy steps
 1. Create a GitHub repository named `LavsStudio`.
 2. Push the project to the repository.

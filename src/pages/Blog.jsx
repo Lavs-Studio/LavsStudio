@@ -1,9 +1,13 @@
 import Layout from '../components/Layout';
 import SectionTitle from '../components/SectionTitle';
 import Seo from '../components/Seo';
-import { blogPosts } from '../data/products';
+import useRemoteData from '../hooks/useRemoteData';
+import { fetchPublishedBlogPosts } from '../lib/content';
+import { blogPosts as fallbackBlogPosts } from '../data/products';
 
 export default function Blog() {
+  const [blogPosts] = useRemoteData(fetchPublishedBlogPosts, fallbackBlogPosts);
+
   return (
     <Layout>
       <Seo

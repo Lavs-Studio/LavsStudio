@@ -4,13 +4,18 @@ export default {
   theme: {
     extend: {
       colors: {
-        cream: '#f8efe9',
-        blush: '#f2c9c8',
-        rose: '#d78f8f',
-        espresso: '#3d2b2b',
+        cream: '#faf4fb',
+        blush: '#f472b6',
+        rose: '#ec4899',
+        lavender: '#a855f7',
+        pink: '#f472b6',
+        espresso: '#2e1f3b',
+        plum: '#2e1f3b',
+        lightbg: '#faf4fb',
       },
       boxShadow: {
-        soft: '0 10px 30px rgba(61, 43, 43, 0.08)',
+        soft: '0 10px 30px rgba(168, 85, 247, 0.08)',
+        glass: '0 8px 32px 0 rgba(168, 85, 247, 0.06)',
       },
       fontFamily: {
         display: ['Georgia', 'serif'],
@@ -20,3 +25,6 @@ export default {
   },
   plugins: [],
 };
+
+
+

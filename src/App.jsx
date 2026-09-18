@@ -1,4 +1,5 @@
 import { Routes, Route } from 'react-router-dom';
+import { Navigate } from 'react-router-dom';
 import Home from './pages/Home';
 import Categories from './pages/Categories';
 import Fashion from './pages/Fashion';
@@ -13,6 +14,18 @@ import Contact from './pages/Contact';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import AffiliateDisclosure from './pages/AffiliateDisclosure';
 import NotFound from './pages/NotFound';
+import AdminLogin from './pages/AdminLogin';
+import AdminDashboard from './pages/AdminDashboard';
+import ProtectedAdminRoute from './admin/ProtectedAdminRoute';
+import AdminLayout from './admin/AdminLayout';
+
+import AdminProducts from './pages/AdminProducts';
+import AdminProductForm from './pages/AdminProductForm';
+import AdminBlog from './pages/AdminBlog';
+import AdminBlogForm from './pages/AdminBlogForm';
+import AdminHomepage from './pages/AdminHomepage';
+import AdminCategories from './pages/AdminCategories';
+import AdminMedia from './pages/AdminMedia';
 
 function App() {
   return (
@@ -30,6 +43,23 @@ function App() {
       <Route path="/contact" element={<Contact />} />
       <Route path="/privacy-policy" element={<PrivacyPolicy />} />
       <Route path="/affiliate-disclosure" element={<AffiliateDisclosure />} />
+      <Route path="/admin/login" element={<AdminLogin />} />
+      <Route path="/admin/*" element={<ProtectedAdminRoute />}>
+        <Route path="" element={<AdminLayout />}>
+          <Route index element={<Navigate to="dashboard" replace />} />
+          <Route path="dashboard" element={<AdminDashboard />} />
+          <Route path="products" element={<AdminProducts />} />
+          <Route path="products/new" element={<AdminProductForm />} />
+          <Route path="products/:id/edit" element={<AdminProductForm />} />
+          <Route path="categories" element={<AdminCategories />} />
+          <Route path="blog" element={<AdminBlog />} />
+          <Route path="blog/new" element={<AdminBlogForm />} />
+          <Route path="blog/:id/edit" element={<AdminBlogForm />} />
+          <Route path="homepage" element={<AdminHomepage />} />
+          <Route path="media" element={<AdminMedia />} />
+          <Route path="*" element={<Navigate to="dashboard" replace />} />
+        </Route>
+      </Route>
       <Route path="*" element={<NotFound />} />
     </Routes>
   );

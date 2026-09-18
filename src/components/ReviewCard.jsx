@@ -1,11 +1,13 @@
 export default function ReviewCard({ name, title, review }) {
   return (
-    <div className="rounded-[24px] border border-rose/20 bg-cream p-5 shadow-soft">
-      <p className="text-sm text-espresso/70">“{review}”</p>
-      <div className="mt-4">
-        <p className="font-semibold">{name}</p>
-        <p className="text-sm text-espresso/60">{title}</p>
+    <div className="rounded-[28px] border border-[#e9d5ff]/80 bg-white/90 p-6 backdrop-blur-xl shadow-xl shadow-purple-950/5 space-y-3">
+      <p className="text-sm italic text-[#2e1f3b]/85 leading-relaxed">“{review}”</p>
+      <div>
+        <p className="font-bold text-[#2e1f3b]">{name}</p>
+        <p className="text-xs text-[#2e1f3b]/60">{title}</p>
       </div>
     </div>
   );
 }
+
+

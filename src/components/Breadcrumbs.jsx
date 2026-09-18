@@ -22,8 +22,8 @@ export default function Breadcrumbs() {
   if (pathnames.length === 0) return null;
 
   return (
-    <nav aria-label="Breadcrumb" className="mx-auto mb-8 flex max-w-7xl flex-wrap items-center gap-2 px-4 text-sm text-espresso/70 sm:px-6 lg:px-8">
-      <Link to="/" className="hover:text-rose">Home</Link>
+    <nav aria-label="Breadcrumb" className="mx-auto mb-6 flex max-w-7xl flex-wrap items-center gap-2 px-4 text-xs font-medium text-[#2e1f3b]/70 sm:px-6 lg:px-8">
+      <Link to="/" className="hover:text-[#ec4899] transition">Home</Link>
       {pathnames.map((segment, index) => {
         const href = `/${pathnames.slice(0, index + 1).join('/')}`;
         const isLast = index === pathnames.length - 1;
@@ -31,11 +31,13 @@ export default function Breadcrumbs() {
 
         return (
           <span key={href} className="flex items-center gap-2">
-            <span>/</span>
-            {isLast ? <span className="text-espresso">{label}</span> : <Link to={href} className="hover:text-rose">{label}</Link>}
+            <span className="text-[#2e1f3b]/30">/</span>
+            {isLast ? <span className="text-[#ec4899] font-semibold capitalize">{label}</span> : <Link to={href} className="hover:text-[#ec4899] transition capitalize">{label}</Link>}
           </span>
         );
       })}
     </nav>
   );
 }
+
+
