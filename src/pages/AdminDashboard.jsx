@@ -1,12 +1,16 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAdminAuth } from '../admin/AdminAuthProvider';
-import { supabase } from '../lib/supabase';
+import {
+  fetchPublishedProducts,
+  fetchPublishedBlogPosts,
+  fetchPublishedCategories,
+} from '../lib/content';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
-  const { session, adminProfile, isLoading: isAuthLoading, isAuthorizedAdmin, signOut } = useAdminAuth();
-  
+  const { session, adminProfile, isLoading: isAuthLoading, isAuthorizedAdmin } = useAdminAuth();
+
   const [stats, setStats] = useState({
     totalProducts: 0,
     publishedProducts: 0,
@@ -28,41 +32,33 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (!isAuthorizedAdmin) return;
 
-    async function fetchDashboardData() {
+    async function loadDashboardData() {
       setIsDataLoading(true);
       try {
-        // Fetch counts
-        const [
-          { count: totalProducts },
-          { count: publishedProducts },
-          { count: totalPosts },
-          { count: publishedPosts },
-          { count: totalCategories }
-        ] = await Promise.all([
-          supabase.from('products').select('*', { count: 'exact', head: true }),
-          supabase.from('products').select('*', { count: 'exact', head: true }).eq('published', true),
-          supabase.from('blog_posts').select('*', { count: 'exact', head: true }),
-          supabase.from('blog_posts').select('*', { count: 'exact', head: true }).eq('published', true),
-          supabase.from('categories').select('*', { count: 'exact', head: true })
+        const [products, posts, categories] = await Promise.all([
+          fetchPublishedProducts(),
+          fetchPublishedBlogPosts(),
+          fetchPublishedCategories(),
         ]);
+
+        const totalProds = products.length;
+        const pubProds = products.filter((p) => p.published !== false).length;
+        const draftProds = totalProds - pubProds;
+
+        const totalP = posts.length;
+        const pubP = posts.filter((p) => p.published !== false).length;
 
         setStats({
-          totalProducts: totalProducts || 0,
-          publishedProducts: publishedProducts || 0,
-          draftProducts: (totalProducts || 0) - (publishedProducts || 0),
-          totalPosts: totalPosts || 0,
-          publishedPosts: publishedPosts || 0,
-          totalCategories: totalCategories || 0,
+          totalProducts: totalProds,
+          publishedProducts: pubProds,
+          draftProducts: draftProds,
+          totalPosts: totalP,
+          publishedPosts: pubP,
+          totalCategories: categories.length,
         });
 
-        // Fetch recent items
-        const [productsRes, postsRes] = await Promise.all([
-          supabase.from('products').select('id, name, created_at, published').order('created_at', { ascending: false }).limit(5),
-          supabase.from('blog_posts').select('id, title, updated_at, published').order('updated_at', { ascending: false }).limit(5)
-        ]);
-
-        setRecentProducts(productsRes.data || []);
-        setRecentPosts(postsRes.data || []);
+        setRecentProducts(products.slice(0, 6));
+        setRecentPosts(posts.slice(0, 6));
       } catch (error) {
         console.error('Error fetching dashboard data:', error);
       } finally {
@@ -70,104 +66,197 @@ export default function AdminDashboard() {
       }
     }
 
-    fetchDashboardData();
+    loadDashboardData();
   }, [isAuthorizedAdmin]);
 
   if (isAuthLoading || !isAuthorizedAdmin) {
     return (
-      <div className="rounded-[28px] border border-white/10 bg-black/20 p-8 text-white/70">
+      <div className="rounded-[28px] border border-[#e9d5ff] bg-white/80 p-8 text-[#2e1f3b]/70 font-medium">
         Loading admin dashboard...
       </div>
     );
   }
 
   const statCards = [
-    { label: 'Total Products', value: stats.totalProducts },
-    { label: 'Published Products', value: stats.publishedProducts },
-    { label: 'Draft Products', value: stats.draftProducts },
-    { label: 'Total Blog Posts', value: stats.totalPosts },
-    { label: 'Published Posts', value: stats.publishedPosts },
-    { label: 'Total Categories', value: stats.totalCategories },
+    { label: 'Total Products', value: stats.totalProducts, link: '/admin/products' },
+    { label: 'Published Products', value: stats.publishedProducts, link: '/admin/products' },
+    { label: 'Draft Products', value: stats.draftProducts, link: '/admin/products' },
+    { label: 'Blog Posts', value: stats.totalPosts, link: '/admin/blog' },
+    { label: 'Published Posts', value: stats.publishedPosts, link: '/admin/blog' },
+    { label: 'Categories', value: stats.totalCategories, link: '/admin/categories' },
   ];
 
   return (
-    <div>
-      <div className="flex flex-col gap-4 border-b border-white/10 pb-6 sm:flex-row sm:items-end sm:justify-between">
+    <div className="space-y-8 text-[#2e1f3b]">
+      {/* Header */}
+      <div className="flex flex-col gap-4 border-b border-[#e9d5ff]/80 pb-6 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.35em] text-[#e2a4a4]">Dashboard</p>
-          <h2 className="mt-3 text-3xl font-semibold">Overview</h2>
-          <p className="mt-2 text-sm text-white/65">
-            Welcome back, {adminProfile?.full_name || session?.user?.email}
+          <p className="text-xs font-semibold uppercase tracking-[0.35em] text-[#ec4899]">Dashboard</p>
+          <h2 className="mt-2 text-3xl font-bold text-[#2e1f3b]">Overview</h2>
+          <p className="mt-1 text-sm font-medium text-[#2e1f3b]/75">
+            Welcome back, {adminProfile?.full_name || session?.user?.email || 'Admin'}
           </p>
         </div>
-        <div className="flex gap-3">
-          <Link to="/admin/products/new" className="rounded-full bg-[#e2a4a4] px-4 py-2 text-sm font-semibold text-[#130d11] transition hover:bg-[#efb3b3]">
+        <div className="flex flex-wrap gap-3">
+          <Link
+            to="/admin/products/new"
+            className="rounded-full bg-gradient-to-r from-[#f472b6] to-[#c084fc] px-5 py-2.5 text-xs font-bold text-white shadow-md transition hover:opacity-95"
+          >
             + Add Product
           </Link>
-          <Link to="/admin/blog/new" className="rounded-full border border-[#e2a4a4]/30 px-4 py-2 text-sm text-white transition hover:border-[#e2a4a4]">
-            + Add Post
+          <Link
+            to="/admin/blog/new"
+            className="rounded-full border border-[#f472b6]/40 bg-[#fde8f3] px-5 py-2.5 text-xs font-bold text-[#2e1f3b] transition hover:bg-[#f472b6] hover:text-white"
+          >
+            + Add Blog Post
           </Link>
-          <Link to="/admin/categories/new" className="rounded-full border border-[#e2a4a4]/30 px-4 py-2 text-sm text-white transition hover:border-[#e2a4a4]">
-            + Add Category
+          <Link
+            to="/admin/categories"
+            className="rounded-full border border-[#e9d5ff] bg-white px-5 py-2.5 text-xs font-bold text-[#2e1f3b] shadow-sm transition hover:bg-[#fde8f3]"
+          >
+            Manage Categories
           </Link>
         </div>
       </div>
 
       {isDataLoading ? (
-        <div className="mt-8 animate-pulse rounded-[28px] border border-white/10 bg-white/5 p-8 text-white/70">
-          Loading statistics...
+        <div className="animate-pulse rounded-[28px] border border-[#e9d5ff] bg-white/70 p-8 text-[#2e1f3b]/70 font-medium">
+          Loading dashboard statistics...
         </div>
       ) : (
         <>
-          <div className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+          {/* Stat Cards Grid */}
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
             {statCards.map((card) => (
-              <div key={card.label} className="rounded-[24px] border border-white/10 bg-white/5 p-5 text-center">
-                <p className="text-3xl font-semibold text-white">{card.value}</p>
-                <p className="mt-2 text-[10px] uppercase tracking-[0.2em] text-[#e2a4a4]/80">{card.label}</p>
-              </div>
+              <Link
+                key={card.label}
+                to={card.link}
+                className="group rounded-[24px] border border-[#e9d5ff] bg-white p-5 text-center shadow-sm transition hover:-translate-y-1 hover:border-[#f472b6]/60 hover:shadow-md"
+              >
+                <p className="text-3xl font-bold text-[#2e1f3b] group-hover:text-[#ec4899] transition">{card.value}</p>
+                <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.15em] text-[#ec4899]">{card.label}</p>
+              </Link>
             ))}
           </div>
 
-          <div className="mt-8 grid gap-6 lg:grid-cols-2">
-            <section className="rounded-[28px] border border-white/10 bg-black/20 p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xl font-semibold">Recently Added Products</h3>
-                <Link to="/admin/products" className="text-sm text-[#e2a4a4] hover:underline">View all</Link>
+          {/* Detailed Lists */}
+          <div className="grid gap-8 lg:grid-cols-2">
+            {/* Products List */}
+            <section className="rounded-[28px] border border-[#e9d5ff] bg-white p-6 space-y-4 shadow-sm">
+              <div className="flex items-center justify-between border-b border-[#e9d5ff] pb-4">
+                <div>
+                  <h3 className="text-lg font-bold text-[#2e1f3b]">Current Products</h3>
+                  <p className="text-xs font-medium text-[#2e1f3b]/70">Manage items visible on storefront</p>
+                </div>
+                <Link to="/admin/products" className="text-xs font-bold text-[#ec4899] hover:underline">
+                  View All Products ({stats.totalProducts}) →
+                </Link>
               </div>
+
               {recentProducts.length === 0 ? (
-                <p className="text-sm text-white/50">No products found.</p>
+                <p className="py-6 text-center text-sm font-medium text-[#2e1f3b]/60">No products found.</p>
               ) : (
-                <ul className="space-y-3">
-                  {recentProducts.map(product => (
-                    <li key={product.id} className="flex items-center justify-between rounded-xl bg-white/5 p-3 text-sm">
-                      <span className="truncate pr-4 text-white">{product.name}</span>
-                      <span className={`rounded-full px-2 py-1 text-[10px] uppercase tracking-wider ${product.published ? 'bg-green-500/20 text-green-300' : 'bg-white/10 text-white/60'}`}>
-                        {product.published ? 'Published' : 'Draft'}
-                      </span>
-                    </li>
+                <div className="space-y-3">
+                  {recentProducts.map((product) => (
+                    <div
+                      key={product.id}
+                      className="flex items-center justify-between gap-4 rounded-2xl border border-[#e9d5ff]/60 bg-[#faf4fb] p-3.5 transition hover:bg-[#fde8f3]/40"
+                    >
+                      <div className="flex items-center gap-3.5 min-w-0">
+                        <img
+                          src={product.image || 'https://images.unsplash.com/photo-1523240795612-9a054b0db644?auto=format&fit=crop&w=200&q=80'}
+                          alt={product.title || product.name}
+                          className="h-12 w-12 rounded-xl object-cover border border-[#e9d5ff] shrink-0 shadow-sm"
+                        />
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-bold text-[#2e1f3b]">{product.title || product.name}</p>
+                          <div className="flex items-center gap-2 mt-0.5 text-xs font-medium text-[#2e1f3b]/70">
+                            <span className="capitalize">{product.category || 'Product'}</span>
+                            {product.price && <span>• {product.price}</span>}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3 shrink-0">
+                        <span
+                          className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${
+                            product.published !== false
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                              : 'bg-amber-100 text-amber-800 border border-amber-300'
+                          }`}
+                        >
+                          {product.published !== false ? 'Published' : 'Draft'}
+                        </span>
+                        <Link
+                          to={`/admin/products/${product.id}/edit`}
+                          className="rounded-full border border-[#f472b6]/40 bg-[#fde8f3] px-3.5 py-1 text-xs font-bold text-[#2e1f3b] hover:bg-[#f472b6] hover:text-white transition"
+                        >
+                          Edit
+                        </Link>
+                      </div>
+                    </div>
                   ))}
-                </ul>
+                </div>
               )}
             </section>
 
-            <section className="rounded-[28px] border border-white/10 bg-black/20 p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xl font-semibold">Recently Edited Posts</h3>
-                <Link to="/admin/blog" className="text-sm text-[#e2a4a4] hover:underline">View all</Link>
+            {/* Blog Posts List */}
+            <section className="rounded-[28px] border border-[#e9d5ff] bg-white p-6 space-y-4 shadow-sm">
+              <div className="flex items-center justify-between border-b border-[#e9d5ff] pb-4">
+                <div>
+                  <h3 className="text-lg font-bold text-[#2e1f3b]">Current Blog Posts</h3>
+                  <p className="text-xs font-medium text-[#2e1f3b]/70">Manage articles and beauty notes</p>
+                </div>
+                <Link to="/admin/blog" className="text-xs font-bold text-[#ec4899] hover:underline">
+                  View All Posts ({stats.totalPosts}) →
+                </Link>
               </div>
+
               {recentPosts.length === 0 ? (
-                <p className="text-sm text-white/50">No posts found.</p>
+                <p className="py-6 text-center text-sm font-medium text-[#2e1f3b]/60">No blog posts found.</p>
               ) : (
-                <ul className="space-y-3">
-                  {recentPosts.map(post => (
-                    <li key={post.id} className="flex items-center justify-between rounded-xl bg-white/5 p-3 text-sm">
-                      <span className="truncate pr-4 text-white">{post.title}</span>
-                      <span className={`rounded-full px-2 py-1 text-[10px] uppercase tracking-wider ${post.published ? 'bg-green-500/20 text-green-300' : 'bg-white/10 text-white/60'}`}>
-                        {post.published ? 'Published' : 'Draft'}
-                      </span>
-                    </li>
+                <div className="space-y-3">
+                  {recentPosts.map((post) => (
+                    <div
+                      key={post.id}
+                      className="flex items-center justify-between gap-4 rounded-2xl border border-[#e9d5ff]/60 bg-[#faf4fb] p-3.5 transition hover:bg-[#fde8f3]/40"
+                    >
+                      <div className="flex items-center gap-3.5 min-w-0">
+                        {post.image && (
+                          <img
+                            src={post.image}
+                            alt={post.title}
+                            className="h-12 w-12 rounded-xl object-cover border border-[#e9d5ff] shrink-0 shadow-sm"
+                          />
+                        )}
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-bold text-[#2e1f3b]">{post.title}</p>
+                          <p className="mt-0.5 text-xs font-medium text-[#2e1f3b]/70 truncate">
+                            {post.category} {post.date ? `• ${post.date}` : ''}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3 shrink-0">
+                        <span
+                          className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${
+                            post.published !== false
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                              : 'bg-amber-100 text-amber-800 border border-amber-300'
+                          }`}
+                        >
+                          {post.published !== false ? 'Published' : 'Draft'}
+                        </span>
+                        <Link
+                          to={`/admin/blog/${post.id}/edit`}
+                          className="rounded-full border border-[#f472b6]/40 bg-[#fde8f3] px-3.5 py-1 text-xs font-bold text-[#2e1f3b] hover:bg-[#f472b6] hover:text-white transition"
+                        >
+                          Edit
+                        </Link>
+                      </div>
+                    </div>
                   ))}
-                </ul>
+                </div>
               )}
             </section>
           </div>

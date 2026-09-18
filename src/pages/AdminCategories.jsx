@@ -1,13 +1,16 @@
+import { useEffect, useState } from 'react';
 import MediaPickerModal from '../components/MediaPickerModal';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { saveLocalCategories } from '../lib/content';
 
 const INITIAL_CATEGORIES_DATA = [
-  { name: 'Fashion', slug: 'fashion', description: 'Elevated staples, dresses, and everyday style edits.', image: 'https://images.unsplash.com/photo-1487412912498-0447578fcca8?auto=format&fit=crop&w=800&q=80', display_order: 1, active: true },
-  { name: 'Dresses', slug: 'dresses', description: 'Feminine, Pinterest-ready dresses for every occasion.', image: 'https://images.unsplash.com/photo-1496747611176-843222e1e57c?auto=format&fit=crop&w=800&q=80', display_order: 2, active: true },
-  { name: 'Jewellery', slug: 'jewellery', description: 'Dainty gold hoops, layered chains, and everyday shine.', image: 'https://images.unsplash.com/photo-1617038260897-41a1f14a8ca0?auto=format&fit=crop&w=800&q=80', display_order: 3, active: true },
-  { name: 'Hair Care', slug: 'hair-care', description: 'Routine staples, serums, and heatless styling finds.', image: 'https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?auto=format&fit=crop&w=800&q=80', display_order: 4, active: true },
-  { name: 'Skin Care', slug: 'skin-care', description: 'Gentle hydration, Korean beauty favourites, and glowing skin essentials.', image: 'https://images.unsplash.com/photo-1620916566398-39f1143ab7be?auto=format&fit=crop&w=800&q=80', display_order: 5, active: true },
-  { name: 'Beauty', slug: 'beauty', description: 'Everyday makeup, lip tints, and soft-glam picks.', image: 'https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?auto=format&fit=crop&w=800&q=80', display_order: 6, active: true },
-  { name: 'Amazon Finds', slug: 'amazon-finds', description: 'Curated budget-friendly picks directly from Amazon.', image: 'https://images.unsplash.com/photo-1523240795612-9a054b0db644?auto=format&fit=crop&w=800&q=80', display_order: 7, active: true },
+  { id: 'cat-1', name: 'Fashion', slug: 'fashion', description: 'Elevated staples, dresses, and everyday style edits.', image: 'https://images.unsplash.com/photo-1487412912498-0447578fcca8?auto=format&fit=crop&w=800&q=80', display_order: 1, active: true },
+  { id: 'cat-2', name: 'Dresses', slug: 'dresses', description: 'Feminine, Pinterest-ready dresses for every occasion.', image: 'https://images.unsplash.com/photo-1496747611176-843222e1e57c?auto=format&fit=crop&w=800&q=80', display_order: 2, active: true },
+  { id: 'cat-3', name: 'Jewellery', slug: 'jewellery', description: 'Dainty gold hoops, layered chains, and everyday shine.', image: 'https://images.unsplash.com/photo-1617038260897-41a1f14a8ca0?auto=format&fit=crop&w=800&q=80', display_order: 3, active: true },
+  { id: 'cat-4', name: 'Hair Care', slug: 'hair-care', description: 'Routine staples, serums, and heatless styling finds.', image: 'https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?auto=format&fit=crop&w=800&q=80', display_order: 4, active: true },
+  { id: 'cat-5', name: 'Skin Care', slug: 'skin-care', description: 'Gentle hydration, Korean beauty favourites, and glowing skin essentials.', image: 'https://images.unsplash.com/photo-1620916566398-39f1143ab7be?auto=format&fit=crop&w=800&q=80', display_order: 5, active: true },
+  { id: 'cat-6', name: 'Beauty', slug: 'beauty', description: 'Everyday makeup, lip tints, and soft-glam picks.', image: 'https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?auto=format&fit=crop&w=800&q=80', display_order: 6, active: true },
+  { id: 'cat-7', name: 'Amazon Finds', slug: 'amazon-finds', description: 'Curated budget-friendly picks directly from Amazon.', image: 'https://images.unsplash.com/photo-1523240795612-9a054b0db644?auto=format&fit=crop&w=800&q=80', display_order: 7, active: true },
 ];
 
 export default function AdminCategories() {
@@ -63,16 +66,30 @@ export default function AdminCategories() {
   const fetchCategories = async () => {
     setIsLoading(true);
     try {
+      if (!supabase || !isSupabaseConfigured) {
+        const raw = localStorage.getItem('lavsstudio_custom_categories');
+        const parsed = raw ? JSON.parse(raw) : null;
+        setCategories(parsed || INITIAL_CATEGORIES_DATA);
+        return;
+      }
+
       const { data, error } = await supabase
         .from('categories')
         .select('*')
         .order('display_order', { ascending: true });
 
-      if (error) throw error;
-      setCategories(data || []);
+      if (error || !data || data.length === 0) {
+        const raw = localStorage.getItem('lavsstudio_custom_categories');
+        const parsed = raw ? JSON.parse(raw) : null;
+        setCategories(parsed || INITIAL_CATEGORIES_DATA);
+      } else {
+        setCategories(data);
+      }
     } catch (err) {
       console.error('Error fetching categories:', err);
-      showNotification('error', `Failed to load categories: ${err.message}`);
+      const raw = localStorage.getItem('lavsstudio_custom_categories');
+      const parsed = raw ? JSON.parse(raw) : null;
+      setCategories(parsed || INITIAL_CATEGORIES_DATA);
     } finally {
       setIsLoading(false);
     }
@@ -82,52 +99,58 @@ export default function AdminCategories() {
     fetchCategories();
   }, []);
 
-  // Seed Initial Default Categories
   const handleSeedInitialCategories = async () => {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('categories')
-        .insert(INITIAL_CATEGORIES_DATA)
-        .select('*');
+      if (supabase && isSupabaseConfigured) {
+        const { data, error } = await supabase
+          .from('categories')
+          .insert(INITIAL_CATEGORIES_DATA)
+          .select('*');
 
-      if (error) throw error;
+        if (!error && data) {
+          setCategories(data);
+          saveLocalCategories(data);
+          showNotification('success', 'Initial categories created in database!');
+          return;
+        }
+      }
 
-      setCategories(data || []);
-      showNotification('success', 'Initial categories created successfully in Supabase!');
+      setCategories(INITIAL_CATEGORIES_DATA);
+      saveLocalCategories(INITIAL_CATEGORIES_DATA);
+      showNotification('success', 'Categories reset to initial defaults!');
     } catch (err) {
       console.error('Error seeding categories:', err);
-      showNotification('error', `Failed to seed categories: ${err.message}`);
+      setCategories(INITIAL_CATEGORIES_DATA);
+      saveLocalCategories(INITIAL_CATEGORIES_DATA);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Quick toggle active status
   const handleToggleActive = async (category) => {
     const newActive = !category.active;
-    try {
-      const { error } = await supabase
-        .from('categories')
-        .update({ active: newActive })
-        .eq('id', category.id);
+    const updated = categories.map((c) => (c.id === category.id ? { ...c, active: newActive } : c));
+    setCategories(updated);
+    saveLocalCategories(updated);
 
-      if (error) throw error;
-
-      setCategories((prev) =>
-        prev.map((c) => (c.id === category.id ? { ...c, active: newActive } : c))
-      );
-      showNotification(
-        'success',
-        `Category "${category.name}" is now ${newActive ? 'Enabled' : 'Disabled'}.`
-      );
-    } catch (err) {
-      console.error('Error toggling active status:', err);
-      showNotification('error', `Failed to update status: ${err.message}`);
+    if (supabase && isSupabaseConfigured) {
+      try {
+        await supabase
+          .from('categories')
+          .update({ active: newActive })
+          .eq('id', category.id);
+      } catch (err) {
+        console.warn('Supabase toggle category active error:', err);
+      }
     }
+
+    showNotification(
+      'success',
+      `Category "${category.name}" is now ${newActive ? 'Enabled' : 'Disabled'}.`
+    );
   };
 
-  // Reorder display order (Up / Down)
   const handleMove = async (index, direction) => {
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
     if (targetIndex < 0 || targetIndex >= categories.length) return;
@@ -146,21 +169,22 @@ export default function AdminCategories() {
     newCategories[targetIndex] = catA;
 
     setCategories(newCategories);
+    saveLocalCategories(newCategories);
 
-    try {
-      await Promise.all([
-        supabase.from('categories').update({ display_order: catA.display_order }).eq('id', catA.id),
-        supabase.from('categories').update({ display_order: catB.display_order }).eq('id', catB.id),
-      ]);
-      showNotification('success', 'Category order updated.');
-    } catch (err) {
-      console.error('Error saving reorder:', err);
-      showNotification('error', `Failed to reorder: ${err.message}`);
-      fetchCategories();
+    if (supabase && isSupabaseConfigured) {
+      try {
+        await Promise.all([
+          supabase.from('categories').update({ display_order: catA.display_order }).eq('id', catA.id),
+          supabase.from('categories').update({ display_order: catB.display_order }).eq('id', catB.id),
+        ]);
+      } catch (err) {
+        console.warn('Supabase reorder categories error:', err);
+      }
     }
+
+    showNotification('success', 'Category order updated.');
   };
 
-  // Open Modal for Create / Edit
   const handleOpenModal = (category = null) => {
     if (category) {
       setEditingCategory(category);
@@ -191,7 +215,6 @@ export default function AdminCategories() {
     setIsModalOpen(true);
   };
 
-  // Image Selection
   const handleImageFileSelect = (e) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -204,7 +227,6 @@ export default function AdminCategories() {
     }
   };
 
-  // Upload category image to Supabase Storage
   const uploadCategoryImage = async (file) => {
     setIsUploadingImage(true);
     try {
@@ -234,7 +256,6 @@ export default function AdminCategories() {
     }
   };
 
-  // Save Form
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.name.trim() || !formData.slug.trim()) {
@@ -250,37 +271,39 @@ export default function AdminCategories() {
         try {
           finalImageUrl = await uploadCategoryImage(imageFile);
         } catch (uploadErr) {
-          showNotification('error', `Image upload failed: ${uploadErr.message}`);
-          setIsSaving(false);
-          return;
+          console.warn('Category image upload failed, using preview:', uploadErr);
+          if (imagePreview) finalImageUrl = imagePreview;
         }
       }
 
+      const catId = editingCategory ? editingCategory.id : `cat-${Date.now()}`;
       const payload = {
+        id: catId,
         name: formData.name.trim(),
         slug: formData.slug.trim(),
         description: formData.description.trim() || null,
         image: finalImageUrl || null,
-        display_order: parseInt(formData.display_order, 10) || 0,
+        display_order: parseInt(formData.display_order, 10) || categories.length + 1,
         active: Boolean(formData.active),
       };
 
-      if (editingCategory) {
-        const { error } = await supabase
-          .from('categories')
-          .update(payload)
-          .eq('id', editingCategory.id);
+      const updatedCategories = editingCategory
+        ? categories.map((c) => (c.id === editingCategory.id ? { ...c, ...payload } : c))
+        : [payload, ...categories];
 
-        if (error) throw error;
-        showNotification('success', `Category "${formData.name}" updated!`);
-      } else {
-        const { error } = await supabase.from('categories').insert([payload]);
-        if (error) throw error;
-        showNotification('success', `Category "${formData.name}" created!`);
+      setCategories(updatedCategories);
+      saveLocalCategories(updatedCategories);
+
+      if (supabase && isSupabaseConfigured) {
+        try {
+          await supabase.from('categories').upsert([payload]);
+        } catch (dbErr) {
+          console.warn('Supabase category save error:', dbErr);
+        }
       }
 
+      showNotification('success', editingCategory ? 'Category updated!' : 'Category created!');
       setIsModalOpen(false);
-      fetchCategories();
     } catch (err) {
       console.error('Error saving category:', err);
       showNotification('error', `Failed to save category: ${err.message}`);
@@ -289,19 +312,22 @@ export default function AdminCategories() {
     }
   };
 
-  // Execute Deletion
   const handleDeleteExecute = async () => {
     if (!deleteTarget) return;
     setIsDeleting(true);
     try {
-      const { error } = await supabase
-        .from('categories')
-        .delete()
-        .eq('id', deleteTarget.id);
+      const updated = categories.filter((c) => String(c.id) !== String(deleteTarget.id));
+      setCategories(updated);
+      saveLocalCategories(updated);
 
-      if (error) throw error;
+      if (supabase && isSupabaseConfigured) {
+        try {
+          await supabase.from('categories').delete().eq('id', deleteTarget.id);
+        } catch (err) {
+          console.warn('Supabase delete category error:', err);
+        }
+      }
 
-      setCategories((prev) => prev.filter((c) => c.id !== deleteTarget.id));
       showNotification('success', `Category "${deleteTarget.name}" deleted.`);
       setDeleteTarget(null);
     } catch (err) {
@@ -312,18 +338,19 @@ export default function AdminCategories() {
     }
   };
 
-  const filteredCategories = categories.filter((c) =>
-    c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.slug.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.description?.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredCategories = categories.filter(
+    (c) =>
+      c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      c.slug.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      c.description?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 text-[#2e1f3b]">
       {/* Toast Notification */}
       {notification && (
         <div
-          className={`fixed top-5 right-5 z-50 flex items-center gap-3 rounded-2xl px-5 py-4 shadow-2xl backdrop-blur-xl border transition-all animate-bounce ${
+          className={`fixed top-5 right-5 z-50 flex items-center gap-3 rounded-2xl px-5 py-4 shadow-2xl backdrop-blur-xl border transition-all ${
             notification.type === 'success'
               ? 'bg-emerald-950/90 border-emerald-500/30 text-emerald-200'
               : 'bg-rose-950/90 border-rose-500/30 text-rose-200'
@@ -337,29 +364,29 @@ export default function AdminCategories() {
       )}
 
       {/* Header & Create Button */}
-      <div className="flex flex-col gap-4 border-b border-white/10 pb-6 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-4 border-b border-[#e9d5ff]/80 pb-6 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.35em] text-[#e2a4a4]">
+          <p className="text-xs font-semibold uppercase tracking-[0.35em] text-[#ec4899]">
             Taxonomy
           </p>
-          <h2 className="mt-1 text-3xl font-semibold">Categories</h2>
-          <p className="mt-1 text-sm text-white/60">
+          <h2 className="mt-1 text-3xl font-bold text-[#2e1f3b]">Categories</h2>
+          <p className="mt-1 text-sm font-medium text-[#2e1f3b]/75">
             Manage product & blog categories, display ordering, images, and visibility.
           </p>
         </div>
 
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
           {categories.length === 0 && !isLoading && (
             <button
               onClick={handleSeedInitialCategories}
-              className="rounded-full border border-[#e2a4a4]/30 px-4 py-2.5 text-sm text-white hover:border-[#e2a4a4]"
+              className="rounded-full border border-[#e9d5ff] bg-white px-4 py-2.5 text-sm font-bold text-[#2e1f3b] hover:bg-[#fde8f3]"
             >
               + Seed Default Categories
             </button>
           )}
           <button
             onClick={() => handleOpenModal()}
-            className="inline-flex items-center justify-center gap-2 rounded-full bg-[#e2a4a4] px-5 py-2.5 text-sm font-semibold text-[#130d11] transition hover:bg-[#efb3b3] shadow-lg shadow-[#e2a4a4]/20"
+            className="inline-flex items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#f472b6] to-[#c084fc] px-5 py-2.5 text-sm font-bold text-white transition hover:opacity-95 shadow-md"
           >
             <span>+</span> Add Category
           </button>
@@ -367,8 +394,8 @@ export default function AdminCategories() {
       </div>
 
       {/* Search Bar */}
-      <div className="rounded-[24px] border border-white/10 bg-white/5 p-4 max-w-md">
-        <label className="block text-xs font-medium uppercase tracking-wider text-white/60 mb-1.5">
+      <div className="rounded-[24px] border border-[#e9d5ff] bg-white p-4 max-w-md shadow-sm">
+        <label className="block text-xs font-bold uppercase tracking-wider text-[#2e1f3b] mb-1.5">
           Search Categories
         </label>
         <input
@@ -376,37 +403,37 @@ export default function AdminCategories() {
           placeholder="Search by name, slug, description..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full rounded-xl border border-white/10 bg-black/40 px-3.5 py-2 text-sm text-white placeholder-white/40 focus:border-[#e2a4a4] focus:outline-none"
+          className="w-full rounded-xl border border-[#e9d5ff] bg-[#faf4fb] px-3.5 py-2 text-sm font-semibold text-[#2e1f3b] placeholder-[#2e1f3b]/40 focus:border-[#f472b6] focus:outline-none"
         />
       </div>
 
       {/* Content Area */}
       {isLoading ? (
-        <div className="rounded-[28px] border border-white/10 bg-white/5 p-12 text-center text-white/60 animate-pulse">
+        <div className="rounded-[28px] border border-[#e9d5ff] bg-white p-12 text-center text-[#2e1f3b]/70 font-medium animate-pulse">
           Loading categories...
         </div>
       ) : filteredCategories.length === 0 ? (
-        <div className="rounded-[28px] border border-white/10 bg-white/5 p-12 text-center">
-          <p className="text-lg font-medium text-white/80">No categories found</p>
-          <p className="mt-2 text-sm text-white/50 max-w-md mx-auto">
+        <div className="rounded-[28px] border border-[#e9d5ff] bg-white p-12 text-center shadow-sm">
+          <p className="text-lg font-bold text-[#2e1f3b]">No categories found</p>
+          <p className="mt-2 text-sm text-[#2e1f3b]/70 max-w-md mx-auto">
             {categories.length === 0
-              ? 'Click below to seed the 7 default categories (Fashion, Dresses, Jewellery, Hair Care, Skin Care, Beauty, Amazon Finds).'
+              ? 'Click below to seed default categories.'
               : 'Try changing your search term.'}
           </p>
           {categories.length === 0 && (
             <button
               onClick={handleSeedInitialCategories}
-              className="mt-6 rounded-full bg-[#e2a4a4] px-6 py-2.5 text-sm font-semibold text-[#130d11] transition hover:bg-[#efb3b3]"
+              className="mt-6 rounded-full bg-gradient-to-r from-[#f472b6] to-[#c084fc] px-6 py-2.5 text-sm font-bold text-white shadow-md"
             >
-              Seed 7 Initial Categories
+              Seed Initial Categories
             </button>
           )}
         </div>
       ) : (
-        <div className="overflow-hidden rounded-[28px] border border-white/10 bg-black/20 shadow-xl">
+        <div className="overflow-hidden rounded-[28px] border border-[#e9d5ff] bg-white shadow-sm">
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm text-white/80">
-              <thead className="border-b border-white/10 bg-white/5 text-xs font-semibold uppercase tracking-wider text-white/60">
+            <table className="w-full text-left text-sm text-[#2e1f3b]">
+              <thead className="border-b border-[#e9d5ff] bg-[#fde8f3]/60 text-xs font-bold uppercase tracking-wider text-[#2e1f3b]">
                 <tr>
                   <th scope="col" className="py-4 px-4 text-center">Order</th>
                   <th scope="col" className="py-4 px-4">Category</th>
@@ -416,9 +443,9 @@ export default function AdminCategories() {
                   <th scope="col" className="py-4 px-4 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/5">
+              <tbody className="divide-y divide-[#e9d5ff]/60">
                 {filteredCategories.map((cat, idx) => (
-                  <tr key={cat.id} className="transition hover:bg-white/[0.03]">
+                  <tr key={cat.id} className="transition hover:bg-[#faf4fb]">
                     {/* Order Controls */}
                     <td className="py-3 px-4 text-center whitespace-nowrap">
                       <div className="flex items-center justify-center gap-1">
@@ -427,11 +454,11 @@ export default function AdminCategories() {
                           disabled={idx === 0}
                           onClick={() => handleMove(idx, 'up')}
                           title="Move Up"
-                          className="rounded p-1 text-xs text-white hover:bg-white/10 disabled:opacity-20"
+                          className="rounded p-1 text-xs border border-[#e9d5ff] bg-white text-[#2e1f3b] hover:bg-[#f3e8ff] disabled:opacity-30"
                         >
                           ▲
                         </button>
-                        <span className="font-mono text-xs font-semibold text-[#e2a4a4]">
+                        <span className="font-mono text-xs font-bold text-[#ec4899]">
                           #{cat.display_order ?? idx + 1}
                         </span>
                         <button
@@ -439,7 +466,7 @@ export default function AdminCategories() {
                           disabled={idx === filteredCategories.length - 1}
                           onClick={() => handleMove(idx, 'down')}
                           title="Move Down"
-                          className="rounded p-1 text-xs text-white hover:bg-white/10 disabled:opacity-20"
+                          className="rounded p-1 text-xs border border-[#e9d5ff] bg-white text-[#2e1f3b] hover:bg-[#f3e8ff] disabled:opacity-30"
                         >
                           ▼
                         </button>
@@ -449,7 +476,7 @@ export default function AdminCategories() {
                     {/* Category Image & Name */}
                     <td className="py-3 px-4 whitespace-nowrap">
                       <div className="flex items-center gap-3">
-                        <div className="h-10 w-10 flex-shrink-0 overflow-hidden rounded-xl border border-white/10 bg-white/5">
+                        <div className="h-10 w-10 flex-shrink-0 overflow-hidden rounded-xl border border-[#e9d5ff] bg-[#faf4fb]">
                           {cat.image ? (
                             <img
                               src={cat.image}
@@ -461,22 +488,22 @@ export default function AdminCategories() {
                               }}
                             />
                           ) : (
-                            <div className="flex h-full w-full items-center justify-center text-[9px] text-white/30">
+                            <div className="flex h-full w-full items-center justify-center text-[9px] text-[#2e1f3b]/40 font-bold">
                               No image
                             </div>
                           )}
                         </div>
-                        <span className="font-semibold text-white">{cat.name}</span>
+                        <span className="font-bold text-[#2e1f3b]">{cat.name}</span>
                       </div>
                     </td>
 
                     {/* Slug */}
-                    <td className="py-3 px-4 font-mono text-xs text-[#e2a4a4]/80 whitespace-nowrap">
+                    <td className="py-3 px-4 font-mono text-xs text-[#ec4899] font-semibold whitespace-nowrap">
                       /{cat.slug}
                     </td>
 
                     {/* Description */}
-                    <td className="py-3 px-4 text-xs text-white/60 max-w-xs truncate">
+                    <td className="py-3 px-4 text-xs font-medium text-[#2e1f3b]/70 max-w-xs truncate">
                       {cat.description || '—'}
                     </td>
 
@@ -485,15 +512,15 @@ export default function AdminCategories() {
                       <button
                         onClick={() => handleToggleActive(cat)}
                         title="Click to toggle status"
-                        className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition cursor-pointer ${
+                        className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold transition cursor-pointer ${
                           cat.active
-                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30'
-                            : 'bg-white/10 text-white/60 border border-white/10 hover:bg-white/20'
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                            : 'bg-gray-100 text-gray-600 border border-gray-300'
                         }`}
                       >
                         <span
                           className={`h-2 w-2 rounded-full ${
-                            cat.active ? 'bg-emerald-400' : 'bg-white/40'
+                            cat.active ? 'bg-emerald-500' : 'bg-gray-400'
                           }`}
                         />
                         {cat.active ? 'Active' : 'Disabled'}
@@ -505,13 +532,13 @@ export default function AdminCategories() {
                       <div className="flex items-center justify-end gap-2">
                         <button
                           onClick={() => handleOpenModal(cat)}
-                          className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-white transition hover:border-[#e2a4a4] hover:bg-[#e2a4a4]/10 hover:text-[#e2a4a4]"
+                          className="rounded-full border border-[#f472b6]/40 bg-[#fde8f3] px-3.5 py-1 text-xs font-bold text-[#2e1f3b] hover:bg-[#f472b6] hover:text-white transition"
                         >
                           Edit
                         </button>
                         <button
                           onClick={() => setDeleteTarget(cat)}
-                          className="rounded-lg border border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-300 transition hover:bg-rose-500/20"
+                          className="rounded-full border border-rose-200 bg-rose-50 px-3.5 py-1 text-xs font-bold text-rose-700 hover:bg-rose-600 hover:text-white transition"
                         >
                           Delete
                         </button>
@@ -527,15 +554,15 @@ export default function AdminCategories() {
 
       {/* Add / Edit Category Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="my-8 w-full max-w-lg rounded-[32px] border border-white/15 bg-[#181116] p-6 shadow-2xl space-y-6">
-            <div className="flex items-center justify-between border-b border-white/10 pb-4">
-              <h3 className="text-xl font-semibold text-white">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="my-8 w-full max-w-lg rounded-[32px] border border-[#e9d5ff] bg-white p-6 shadow-2xl space-y-6 text-[#2e1f3b]">
+            <div className="flex items-center justify-between border-b border-[#e9d5ff] pb-4">
+              <h3 className="text-xl font-bold text-[#2e1f3b]">
                 {editingCategory ? 'Edit Category' : 'Create New Category'}
               </h3>
               <button
                 onClick={() => setIsModalOpen(false)}
-                className="text-white/50 hover:text-white text-lg"
+                className="text-[#2e1f3b]/60 hover:text-[#2e1f3b] text-xl font-bold"
               >
                 ✕
               </button>
@@ -544,8 +571,8 @@ export default function AdminCategories() {
             <form onSubmit={handleSubmit} className="space-y-4">
               {/* Category Name */}
               <div>
-                <label className="block text-xs font-medium uppercase tracking-wider text-white/70 mb-1.5">
-                  Category Name <span className="text-rose-400">*</span>
+                <label className="block text-xs font-bold uppercase tracking-wider text-[#2e1f3b] mb-1.5">
+                  Category Name <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
@@ -560,14 +587,14 @@ export default function AdminCategories() {
                     }));
                   }}
                   placeholder="e.g. Skin Care"
-                  className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-2.5 text-sm text-white placeholder-white/30 focus:border-[#e2a4a4] focus:outline-none"
+                  className="w-full rounded-xl border border-[#e9d5ff] bg-[#faf4fb] px-4 py-2.5 text-sm font-semibold text-[#2e1f3b] focus:border-[#f472b6] focus:outline-none"
                 />
               </div>
 
               {/* Slug */}
               <div>
-                <label className="block text-xs font-medium uppercase tracking-wider text-white/70 mb-1.5">
-                  URL Slug <span className="text-rose-400">*</span>
+                <label className="block text-xs font-bold uppercase tracking-wider text-[#2e1f3b] mb-1.5">
+                  URL Slug <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
@@ -578,13 +605,13 @@ export default function AdminCategories() {
                     setFormData((prev) => ({ ...prev, slug: e.target.value }));
                   }}
                   placeholder="e.g. skin-care"
-                  className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-2.5 text-sm text-white placeholder-white/30 focus:border-[#e2a4a4] focus:outline-none"
+                  className="w-full rounded-xl border border-[#e9d5ff] bg-[#faf4fb] px-4 py-2.5 text-sm font-semibold text-[#2e1f3b] focus:border-[#f472b6] focus:outline-none"
                 />
               </div>
 
               {/* Description */}
               <div>
-                <label className="block text-xs font-medium uppercase tracking-wider text-white/70 mb-1.5">
+                <label className="block text-xs font-bold uppercase tracking-wider text-[#2e1f3b] mb-1.5">
                   Description
                 </label>
                 <textarea
@@ -594,7 +621,7 @@ export default function AdminCategories() {
                     setFormData((prev) => ({ ...prev, description: e.target.value }))
                   }
                   placeholder="Short description displayed on category cards..."
-                  className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-2.5 text-sm text-white placeholder-white/30 focus:border-[#e2a4a4] focus:outline-none"
+                  className="w-full rounded-xl border border-[#e9d5ff] bg-[#faf4fb] px-4 py-2.5 text-sm font-semibold text-[#2e1f3b] focus:border-[#f472b6] focus:outline-none"
                 />
               </div>
 
@@ -602,13 +629,13 @@ export default function AdminCategories() {
               <div className="grid gap-4 md:grid-cols-[1fr_90px] items-center">
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-xs font-medium uppercase tracking-wider text-white/70">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-[#2e1f3b]">
                       Category Image
                     </label>
                     <button
                       type="button"
                       onClick={() => setIsMediaPickerOpen(true)}
-                      className="text-[11px] font-semibold text-[#e2a4a4] hover:underline"
+                      className="text-[11px] font-bold text-[#ec4899] hover:underline"
                     >
                       📷 Pick from Library
                     </button>
@@ -617,7 +644,7 @@ export default function AdminCategories() {
                     type="file"
                     accept="image/*"
                     onChange={handleImageFileSelect}
-                    className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-xs text-white file:mr-3 file:rounded-lg file:border-0 file:bg-[#e2a4a4] file:px-3 file:py-1 file:text-xs file:font-semibold file:text-[#130d11]"
+                    className="w-full rounded-xl border border-[#e9d5ff] bg-[#faf4fb] px-3 py-2 text-xs font-semibold text-[#2e1f3b] file:mr-3 file:rounded-lg file:border-0 file:bg-[#fde8f3] file:px-3 file:py-1 file:text-xs file:font-bold file:text-[#ec4899]"
                   />
                   <input
                     type="text"
@@ -627,11 +654,11 @@ export default function AdminCategories() {
                       setFormData((prev) => ({ ...prev, image: e.target.value }));
                       setImagePreview(e.target.value);
                     }}
-                    className="mt-2 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-1.5 text-xs text-white placeholder-white/30 focus:border-[#e2a4a4] focus:outline-none"
+                    className="mt-2 w-full rounded-xl border border-[#e9d5ff] bg-[#faf4fb] px-3 py-1.5 text-xs font-semibold text-[#2e1f3b] focus:border-[#f472b6] focus:outline-none"
                   />
                 </div>
 
-                <div className="h-20 w-20 overflow-hidden rounded-xl border border-white/10 bg-white/5 flex items-center justify-center">
+                <div className="h-20 w-20 overflow-hidden rounded-xl border border-[#e9d5ff] bg-[#fde8f3]/30 flex items-center justify-center">
                   {imagePreview ? (
                     <img
                       src={imagePreview}
@@ -643,7 +670,7 @@ export default function AdminCategories() {
                       }}
                     />
                   ) : (
-                    <span className="text-[10px] text-white/30">No Image</span>
+                    <span className="text-[10px] font-bold text-[#2e1f3b]/40">No Image</span>
                   )}
                 </div>
               </div>
@@ -651,7 +678,7 @@ export default function AdminCategories() {
               {/* Display Order & Active Switch */}
               <div className="grid gap-4 md:grid-cols-2 pt-2">
                 <div>
-                  <label className="block text-xs font-medium uppercase tracking-wider text-white/70 mb-1.5">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-[#2e1f3b] mb-1.5">
                     Display Order
                   </label>
                   <input
@@ -660,7 +687,7 @@ export default function AdminCategories() {
                     onChange={(e) =>
                       setFormData((prev) => ({ ...prev, display_order: e.target.value }))
                     }
-                    className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-2 text-sm text-white focus:border-[#e2a4a4] focus:outline-none"
+                    className="w-full rounded-xl border border-[#e9d5ff] bg-[#faf4fb] px-4 py-2 text-sm font-semibold text-[#2e1f3b] focus:border-[#f472b6] focus:outline-none"
                   />
                 </div>
 
@@ -672,26 +699,26 @@ export default function AdminCategories() {
                       onChange={(e) =>
                         setFormData((prev) => ({ ...prev, active: e.target.checked }))
                       }
-                      className="h-5 w-5 rounded border-white/20 bg-black/50 text-[#e2a4a4] focus:ring-[#e2a4a4]"
+                      className="h-5 w-5 rounded border-[#e9d5ff] text-[#ec4899] focus:ring-[#f472b6]"
                     />
-                    <span className="text-sm font-semibold text-white">Category Active</span>
+                    <span className="text-sm font-bold text-[#2e1f3b]">Category Active</span>
                   </label>
                 </div>
               </div>
 
               {/* Form Action Buttons */}
-              <div className="flex items-center justify-end gap-3 border-t border-white/10 pt-4">
+              <div className="flex items-center justify-end gap-3 border-t border-[#e9d5ff] pt-4">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="rounded-full border border-white/10 bg-white/5 px-5 py-2 text-sm text-white hover:bg-white/10"
+                  className="rounded-full border border-[#e9d5ff] bg-white px-5 py-2 text-sm font-bold text-[#2e1f3b] hover:bg-[#fde8f3]"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSaving || isUploadingImage}
-                  className="rounded-full bg-[#e2a4a4] px-6 py-2 text-sm font-semibold text-[#130d11] transition hover:bg-[#efb3b3] disabled:opacity-50"
+                  className="rounded-full bg-gradient-to-r from-[#f472b6] to-[#c084fc] px-6 py-2 text-sm font-bold text-white shadow-md hover:opacity-95 disabled:opacity-50"
                 >
                   {isSaving
                     ? 'Saving...'
@@ -709,21 +736,20 @@ export default function AdminCategories() {
 
       {/* Confirmation Modal for Delete */}
       {deleteTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md rounded-[28px] border border-white/15 bg-[#181116] p-6 shadow-2xl">
-            <h3 className="text-xl font-semibold text-white">Delete Category</h3>
-            <p className="mt-2 text-sm text-white/70">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-[28px] border border-[#e9d5ff] bg-white p-6 shadow-2xl space-y-4 text-[#2e1f3b]">
+            <h3 className="text-lg font-bold text-[#2e1f3b]">Delete Category</h3>
+            <p className="text-sm font-medium text-[#2e1f3b]/80">
               Are you sure you want to delete category{' '}
-              <span className="font-semibold text-white">"{deleteTarget.name}"</span>?
-              This action cannot be undone.
+              <strong className="text-[#2e1f3b] font-bold">"{deleteTarget.name}"</strong>? This action cannot be undone.
             </p>
 
-            <div className="mt-6 flex justify-end gap-3">
+            <div className="flex justify-end gap-3 pt-4 border-t border-[#e9d5ff]">
               <button
                 type="button"
                 onClick={() => setDeleteTarget(null)}
                 disabled={isDeleting}
-                className="rounded-full border border-white/10 bg-white/5 px-5 py-2 text-sm text-white hover:bg-white/10"
+                className="rounded-full border border-[#e9d5ff] bg-white px-4 py-2 text-xs font-bold text-[#2e1f3b] hover:bg-[#fde8f3]"
               >
                 Cancel
               </button>
@@ -731,7 +757,7 @@ export default function AdminCategories() {
                 type="button"
                 onClick={handleDeleteExecute}
                 disabled={isDeleting}
-                className="rounded-full bg-rose-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-rose-500 shadow-lg shadow-rose-600/30 disabled:opacity-50"
+                className="rounded-full bg-rose-600 px-5 py-2 text-xs font-bold text-white shadow-md hover:bg-rose-700 disabled:opacity-50"
               >
                 {isDeleting ? 'Deleting...' : 'Yes, Delete Category'}
               </button>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { fetchPublishedProducts, deleteProduct, saveProduct } from '../lib/content';
 
 export default function AdminProducts() {
   const [products, setProducts] = useState([]);
@@ -33,23 +34,25 @@ export default function AdminProducts() {
   const fetchProductsAndCategories = async () => {
     setIsLoading(true);
     try {
-      // Fetch categories for dropdown
-      const { data: catData, error: catError } = await supabase
-        .from('categories')
-        .select('id, name')
-        .order('name');
+      if (supabase) {
+        const { data: catData, error: catError } = await supabase
+          .from('categories')
+          .select('id, name')
+          .order('name');
 
-      if (catError) console.error('Error loading categories:', catError);
-      else setCategories(catData || []);
+        if (catError) console.error('Error loading categories:', catError);
+        else setCategories(catData || []);
+      }
 
-      // Fetch products with joined category info
-      const { data: prodData, error: prodError } = await supabase
-        .from('products')
-        .select('*, categories(id, name)')
-        .order('created_at', { ascending: false });
-
-      if (prodError) throw prodError;
-      setProducts(prodData || []);
+      const allProducts = await fetchPublishedProducts();
+      const mapped = allProducts.map((p) => ({
+        ...p,
+        name: p.name || p.title || '',
+        price: typeof p.price === 'string' ? parseFloat(p.price.replace('$', '')) || 0 : p.price || 0,
+        image_url: p.image_url || p.image || '',
+        categories: p.categories || { name: p.category || '' },
+      }));
+      setProducts(mapped);
     } catch (err) {
       console.error('Error fetching products:', err);
       showNotification('error', 'Failed to load products from database.');
@@ -62,24 +65,18 @@ export default function AdminProducts() {
     fetchProductsAndCategories();
   }, []);
 
-  // Quick toggle published status
   const handleTogglePublished = async (product) => {
     setTogglingId(product.id);
     const newStatus = !product.published;
     try {
-      const { error } = await supabase
-        .from('products')
-        .update({ published: newStatus })
-        .eq('id', product.id);
-
-      if (error) throw error;
+      await saveProduct({ ...product, published: newStatus });
 
       setProducts((prev) =>
         prev.map((p) => (p.id === product.id ? { ...p, published: newStatus } : p))
       );
       showNotification(
         'success',
-        `Product "${product.name}" is now ${newStatus ? 'Published' : 'Draft'}.`
+        `Product "${product.name || product.title}" status is now ${newStatus ? 'Published' : 'Draft'}.`
       );
     } catch (err) {
       console.error('Error toggling publish status:', err);
@@ -89,20 +86,14 @@ export default function AdminProducts() {
     }
   };
 
-  // Delete product confirmation & execution
   const handleDeleteExecute = async () => {
     if (!deleteTarget) return;
     setIsDeleting(true);
     try {
-      const { error } = await supabase
-        .from('products')
-        .delete()
-        .eq('id', deleteTarget.id);
+      await deleteProduct(deleteTarget.id);
 
-      if (error) throw error;
-
-      setProducts((prev) => prev.filter((p) => p.id !== deleteTarget.id));
-      showNotification('success', `Product "${deleteTarget.name}" deleted successfully.`);
+      setProducts((prev) => prev.filter((p) => String(p.id) !== String(deleteTarget.id)));
+      showNotification('success', `Product "${deleteTarget.name || deleteTarget.title}" deleted successfully.`);
       setDeleteTarget(null);
     } catch (err) {
       console.error('Error deleting product:', err);
@@ -112,9 +103,7 @@ export default function AdminProducts() {
     }
   };
 
-  // Filter & Sort Logic
   const filteredProducts = products.filter((product) => {
-    // Search query
     const search = searchTerm.toLowerCase();
     const matchesSearch =
       !searchTerm ||
@@ -123,11 +112,9 @@ export default function AdminProducts() {
       product.short_description?.toLowerCase().includes(search) ||
       (product.tags && product.tags.some((t) => t.toLowerCase().includes(search)));
 
-    // Category filter
     const matchesCategory =
-      selectedCategory === 'all' || product.category_id === selectedCategory;
+      selectedCategory === 'all' || product.category_id === selectedCategory || product.category === selectedCategory;
 
-    // Status filter
     const matchesStatus =
       selectedStatus === 'all' ||
       (selectedStatus === 'published' && product.published) ||
@@ -138,10 +125,10 @@ export default function AdminProducts() {
 
   const sortedProducts = [...filteredProducts].sort((a, b) => {
     if (sortBy === 'newest') {
-      return new Date(b.created_at) - new Date(a.created_at);
+      return new Date(b.created_at || 0) - new Date(a.created_at || 0);
     }
     if (sortBy === 'oldest') {
-      return new Date(a.created_at) - new Date(b.created_at);
+      return new Date(a.created_at || 0) - new Date(b.created_at || 0);
     }
     if (sortBy === 'price-low') {
       return (a.price || 0) - (b.price || 0);
@@ -150,17 +137,17 @@ export default function AdminProducts() {
       return (b.price || 0) - (a.price || 0);
     }
     if (sortBy === 'name-asc') {
-      return a.name.localeCompare(b.name);
+      return (a.name || '').localeCompare(b.name || '');
     }
     return 0;
   });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 text-[#2e1f3b]">
       {/* Toast Notification */}
       {notification && (
         <div
-          className={`fixed top-5 right-5 z-50 flex items-center gap-3 rounded-2xl px-5 py-4 shadow-2xl backdrop-blur-xl border transition-all animate-bounce ${
+          className={`fixed top-5 right-5 z-50 flex items-center gap-3 rounded-2xl px-5 py-4 shadow-2xl backdrop-blur-xl border transition-all ${
             notification.type === 'success'
               ? 'bg-emerald-950/90 border-emerald-500/30 text-emerald-200'
               : 'bg-rose-950/90 border-rose-500/30 text-rose-200'
@@ -174,29 +161,29 @@ export default function AdminProducts() {
       )}
 
       {/* Header & Primary Action */}
-      <div className="flex flex-col gap-4 border-b border-white/10 pb-6 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-4 border-b border-[#e9d5ff]/80 pb-6 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.35em] text-[#e2a4a4]">
+          <p className="text-xs font-semibold uppercase tracking-[0.35em] text-[#ec4899]">
             Management
           </p>
-          <h2 className="mt-1 text-3xl font-semibold">Products Catalog</h2>
-          <p className="mt-1 text-sm text-white/60">
+          <h2 className="mt-1 text-3xl font-bold text-[#2e1f3b]">Products Catalog</h2>
+          <p className="mt-1 text-sm font-medium text-[#2e1f3b]/75">
             Create, edit, search, filter, and manage your products.
           </p>
         </div>
         <Link
           to="/admin/products/new"
-          className="inline-flex items-center justify-center gap-2 rounded-full bg-[#e2a4a4] px-5 py-2.5 text-sm font-semibold text-[#130d11] transition hover:bg-[#efb3b3] shadow-lg shadow-[#e2a4a4]/20"
+          className="inline-flex items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#f472b6] to-[#c084fc] px-5 py-2.5 text-sm font-bold text-white transition hover:opacity-95 shadow-md"
         >
           <span>+</span> Add New Product
         </Link>
       </div>
 
       {/* Search & Filter Controls Toolbar */}
-      <div className="grid gap-4 rounded-[24px] border border-white/10 bg-white/5 p-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 rounded-[24px] border border-[#e9d5ff] bg-white p-4 sm:grid-cols-2 lg:grid-cols-4 shadow-sm">
         {/* Search */}
         <div>
-          <label className="block text-xs font-medium uppercase tracking-wider text-white/60 mb-1.5">
+          <label className="block text-xs font-bold uppercase tracking-wider text-[#2e1f3b] mb-1.5">
             Search
           </label>
           <input
@@ -204,23 +191,23 @@ export default function AdminProducts() {
             placeholder="Search by name, brand, tag..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full rounded-xl border border-white/10 bg-black/40 px-3.5 py-2 text-sm text-white placeholder-white/40 focus:border-[#e2a4a4] focus:outline-none"
+            className="w-full rounded-xl border border-[#e9d5ff] bg-[#faf4fb] px-3.5 py-2 text-sm font-semibold text-[#2e1f3b] placeholder-[#2e1f3b]/40 focus:border-[#f472b6] focus:outline-none"
           />
         </div>
 
         {/* Category Filter */}
         <div>
-          <label className="block text-xs font-medium uppercase tracking-wider text-white/60 mb-1.5">
+          <label className="block text-xs font-bold uppercase tracking-wider text-[#2e1f3b] mb-1.5">
             Category
           </label>
           <select
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            className="w-full rounded-xl border border-white/10 bg-black/40 px-3.5 py-2 text-sm text-white focus:border-[#e2a4a4] focus:outline-none"
+            className="w-full rounded-xl border border-[#e9d5ff] bg-[#faf4fb] px-3.5 py-2 text-sm font-semibold text-[#2e1f3b] focus:border-[#f472b6] focus:outline-none"
           >
-            <option value="all" className="bg-[#130d11] text-white">All Categories</option>
+            <option value="all">All Categories</option>
             {categories.map((cat) => (
-              <option key={cat.id} value={cat.id} className="bg-[#130d11] text-white">
+              <option key={cat.id} value={cat.id}>
                 {cat.name}
               </option>
             ))}
@@ -229,44 +216,44 @@ export default function AdminProducts() {
 
         {/* Status Filter */}
         <div>
-          <label className="block text-xs font-medium uppercase tracking-wider text-white/60 mb-1.5">
+          <label className="block text-xs font-bold uppercase tracking-wider text-[#2e1f3b] mb-1.5">
             Status
           </label>
           <select
             value={selectedStatus}
             onChange={(e) => setSelectedStatus(e.target.value)}
-            className="w-full rounded-xl border border-white/10 bg-black/40 px-3.5 py-2 text-sm text-white focus:border-[#e2a4a4] focus:outline-none"
+            className="w-full rounded-xl border border-[#e9d5ff] bg-[#faf4fb] px-3.5 py-2 text-sm font-semibold text-[#2e1f3b] focus:border-[#f472b6] focus:outline-none"
           >
-            <option value="all" className="bg-[#130d11] text-white">All Statuses</option>
-            <option value="published" className="bg-[#130d11] text-white">Published Only</option>
-            <option value="draft" className="bg-[#130d11] text-white">Drafts Only</option>
+            <option value="all">All Statuses</option>
+            <option value="published">Published Only</option>
+            <option value="draft">Drafts Only</option>
           </select>
         </div>
 
         {/* Sort By */}
         <div>
-          <label className="block text-xs font-medium uppercase tracking-wider text-white/60 mb-1.5">
+          <label className="block text-xs font-bold uppercase tracking-wider text-[#2e1f3b] mb-1.5">
             Sort By
           </label>
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value)}
-            className="w-full rounded-xl border border-white/10 bg-black/40 px-3.5 py-2 text-sm text-white focus:border-[#e2a4a4] focus:outline-none"
+            className="w-full rounded-xl border border-[#e9d5ff] bg-[#faf4fb] px-3.5 py-2 text-sm font-semibold text-[#2e1f3b] focus:border-[#f472b6] focus:outline-none"
           >
-            <option value="newest" className="bg-[#130d11] text-white">Newest First</option>
-            <option value="oldest" className="bg-[#130d11] text-white">Oldest First</option>
-            <option value="price-low" className="bg-[#130d11] text-white">Price: Low to High</option>
-            <option value="price-high" className="bg-[#130d11] text-white">Price: High to Low</option>
-            <option value="name-asc" className="bg-[#130d11] text-white">Name (A-Z)</option>
+            <option value="newest">Newest First</option>
+            <option value="oldest">Oldest First</option>
+            <option value="price-low">Price: Low to High</option>
+            <option value="price-high">Price: High to Low</option>
+            <option value="name-asc">Name (A-Z)</option>
           </select>
         </div>
       </div>
 
       {/* Count summary */}
-      <div className="flex items-center justify-between text-xs text-white/60 px-1">
+      <div className="flex items-center justify-between text-xs text-[#2e1f3b]/70 font-semibold px-1">
         <p>
-          Showing <span className="font-semibold text-white">{sortedProducts.length}</span> of{' '}
-          <span className="font-semibold text-white">{products.length}</span> total products
+          Showing <span className="font-bold text-[#2e1f3b]">{sortedProducts.length}</span> of{' '}
+          <span className="font-bold text-[#2e1f3b]">{products.length}</span> total products
         </p>
         {(searchTerm || selectedCategory !== 'all' || selectedStatus !== 'all') && (
           <button
@@ -275,22 +262,22 @@ export default function AdminProducts() {
               setSelectedCategory('all');
               setSelectedStatus('all');
             }}
-            className="text-[#e2a4a4] hover:underline"
+            className="text-[#ec4899] font-bold hover:underline"
           >
             Clear Filters
           </button>
         )}
       </div>
 
-      {/* Products Content Area */}
+      {/* Products Table Area */}
       {isLoading ? (
-        <div className="rounded-[28px] border border-white/10 bg-white/5 p-12 text-center text-white/60 animate-pulse">
+        <div className="rounded-[28px] border border-[#e9d5ff] bg-white p-12 text-center text-[#2e1f3b]/70 font-medium animate-pulse">
           Loading products catalog...
         </div>
       ) : sortedProducts.length === 0 ? (
-        <div className="rounded-[28px] border border-white/10 bg-white/5 p-12 text-center">
-          <p className="text-lg font-medium text-white/80">No products found</p>
-          <p className="mt-1 text-sm text-white/50">
+        <div className="rounded-[28px] border border-[#e9d5ff] bg-white p-12 text-center shadow-sm">
+          <p className="text-lg font-bold text-[#2e1f3b]">No products found</p>
+          <p className="mt-1 text-sm text-[#2e1f3b]/70">
             {products.length === 0
               ? 'Get started by creating your first product!'
               : 'Try adjusting your search query or filter settings.'}
@@ -298,130 +285,80 @@ export default function AdminProducts() {
           {products.length === 0 && (
             <Link
               to="/admin/products/new"
-              className="mt-4 inline-block rounded-full bg-[#e2a4a4] px-5 py-2 text-sm font-semibold text-[#130d11]"
+              className="mt-4 inline-block rounded-full bg-gradient-to-r from-[#f472b6] to-[#c084fc] px-5 py-2 text-sm font-bold text-white shadow"
             >
               + Add Product
             </Link>
           )}
         </div>
       ) : (
-        <div className="overflow-hidden rounded-[28px] border border-white/10 bg-black/20 shadow-xl">
+        <div className="overflow-hidden rounded-[28px] border border-[#e9d5ff] bg-white shadow-sm">
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm text-white/80">
-              <thead className="border-b border-white/10 bg-white/5 text-xs font-semibold uppercase tracking-wider text-white/60">
+            <table className="w-full text-left text-sm text-[#2e1f3b]">
+              <thead className="border-b border-[#e9d5ff] bg-[#fde8f3]/60 text-xs font-bold uppercase tracking-wider text-[#2e1f3b]">
                 <tr>
-                  <th scope="col" className="py-4 px-4">Product</th>
-                  <th scope="col" className="py-4 px-4">Category</th>
-                  <th scope="col" className="py-4 px-4">Price</th>
-                  <th scope="col" className="py-4 px-4 text-center">Featured</th>
-                  <th scope="col" className="py-4 px-4 text-center">Status</th>
-                  <th scope="col" className="py-4 px-4 text-right">Actions</th>
+                  <th className="px-6 py-4">Product</th>
+                  <th className="px-6 py-4">Category</th>
+                  <th className="px-6 py-4">Price</th>
+                  <th className="px-6 py-4">Status</th>
+                  <th className="px-6 py-4 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/5">
+              <tbody className="divide-y divide-[#e9d5ff]/60">
                 {sortedProducts.map((product) => (
-                  <tr key={product.id} className="transition hover:bg-white/[0.03]">
-                    {/* Product cell with image */}
-                    <td className="py-3 px-4">
+                  <tr key={product.id} className="transition hover:bg-[#faf4fb]">
+                    <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
-                        <div className="h-12 w-12 flex-shrink-0 overflow-hidden rounded-xl border border-white/10 bg-white/5">
-                          {product.image_url ? (
-                            <img
-                              src={product.image_url}
-                              alt={product.name}
-                              className="h-full w-full object-cover"
-                              onError={(e) => {
-                                e.target.onerror = null;
-                                e.target.src = 'https://via.placeholder.com/150?text=No+Image';
-                              }}
-                            />
-                          ) : (
-                            <div className="flex h-full w-full items-center justify-center text-xs text-white/30">
-                              No image
-                            </div>
-                          )}
-                        </div>
+                        <img
+                          src={product.image_url || 'https://images.unsplash.com/photo-1523240795612-9a054b0db644?auto=format&fit=crop&w=200&q=80'}
+                          alt={product.name}
+                          className="h-12 w-12 rounded-xl object-cover border border-[#e9d5ff] shrink-0 shadow-sm"
+                        />
                         <div className="min-w-0">
-                          <p className="truncate font-semibold text-white">{product.name}</p>
-                          <p className="truncate text-xs text-white/50">
-                            {product.brand ? `Brand: ${product.brand} • ` : ''}
-                            {product.rating ? `★ ${product.rating}` : ''}
-                          </p>
+                          <p className="font-bold text-[#2e1f3b] truncate max-w-xs">{product.name}</p>
+                          <p className="text-xs text-[#2e1f3b]/60 truncate max-w-xs">{product.brand || 'Lavs Studio'}</p>
                         </div>
                       </div>
                     </td>
 
-                    {/* Category */}
-                    <td className="py-3 px-4 text-xs text-white/70">
-                      {product.categories?.name ? (
-                        <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
-                          {product.categories.name}
-                        </span>
-                      ) : (
-                        <span className="text-white/40">Uncategorized</span>
-                      )}
+                    <td className="px-6 py-4">
+                      <span className="inline-block rounded-full bg-[#fde8f3] border border-[#f472b6]/30 px-3 py-1 text-xs font-bold text-[#ec4899] capitalize">
+                        {product.category || product.categories?.name || 'Uncategorized'}
+                      </span>
                     </td>
 
-                    {/* Price */}
-                    <td className="py-3 px-4 whitespace-nowrap">
-                      <div className="font-semibold text-white">
-                        ${parseFloat(product.price || 0).toFixed(2)}
-                      </div>
-                      {product.original_price && (
-                        <div className="text-xs text-white/40 line-through">
-                          ${parseFloat(product.original_price).toFixed(2)}
-                        </div>
-                      )}
+                    <td className="px-6 py-4 font-bold text-[#2e1f3b]">
+                      ${typeof product.price === 'number' ? product.price.toFixed(2) : product.price || '0.00'}
                     </td>
 
-                    {/* Featured */}
-                    <td className="py-3 px-4 text-center">
-                      {product.featured ? (
-                        <span className="inline-flex rounded-full bg-amber-500/20 px-2.5 py-0.5 text-xs font-semibold text-amber-300 border border-amber-500/30">
-                          ★ Featured
-                        </span>
-                      ) : (
-                        <span className="text-xs text-white/30">—</span>
-                      )}
-                    </td>
-
-                    {/* Status with interactive toggle */}
-                    <td className="py-3 px-4 text-center">
+                    <td className="px-6 py-4">
                       <button
-                        onClick={() => handleTogglePublished(product)}
+                        type="button"
                         disabled={togglingId === product.id}
-                        title="Click to toggle status"
-                        className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition cursor-pointer ${
+                        onClick={() => handleTogglePublished(product)}
+                        className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold transition ${
                           product.published
-                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30'
-                            : 'bg-white/10 text-white/60 border border-white/10 hover:bg-white/20'
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                            : 'bg-amber-100 text-amber-800 border border-amber-300'
                         }`}
                       >
-                        <span
-                          className={`h-2 w-2 rounded-full ${
-                            product.published ? 'bg-emerald-400' : 'bg-white/40'
-                          }`}
-                        />
-                        {togglingId === product.id
-                          ? 'Updating...'
-                          : product.published
-                          ? 'Published'
-                          : 'Draft'}
+                        <span className={`h-2 w-2 rounded-full ${product.published ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                        {product.published ? 'Published' : 'Draft'}
                       </button>
                     </td>
 
-                    {/* Action buttons */}
-                    <td className="py-3 px-4 text-right whitespace-nowrap">
+                    <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">
                         <Link
                           to={`/admin/products/${product.id}/edit`}
-                          className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-white transition hover:border-[#e2a4a4] hover:bg-[#e2a4a4]/10 hover:text-[#e2a4a4]"
+                          className="rounded-full border border-[#f472b6]/40 bg-[#fde8f3] px-3.5 py-1 text-xs font-bold text-[#2e1f3b] hover:bg-[#f472b6] hover:text-white transition"
                         >
                           Edit
                         </Link>
                         <button
+                          type="button"
                           onClick={() => setDeleteTarget(product)}
-                          className="rounded-lg border border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-300 transition hover:bg-rose-500/20"
+                          className="rounded-full border border-rose-200 bg-rose-50 px-3.5 py-1 text-xs font-bold text-rose-700 hover:bg-rose-600 hover:text-white transition"
                         >
                           Delete
                         </button>
@@ -435,33 +372,30 @@ export default function AdminProducts() {
         </div>
       )}
 
-      {/* Confirmation Modal for Deleting Product */}
+      {/* Delete Confirmation Modal */}
       {deleteTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md rounded-[28px] border border-white/15 bg-[#181116] p-6 shadow-2xl">
-            <h3 className="text-xl font-semibold text-white">Delete Product</h3>
-            <p className="mt-2 text-sm text-white/70">
-              Are you sure you want to delete{' '}
-              <span className="font-semibold text-white">"{deleteTarget.name}"</span>?
-              This action cannot be undone and will permanently remove the product from your catalog.
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-[28px] border border-[#e9d5ff] bg-white p-6 shadow-2xl space-y-4 text-[#2e1f3b]">
+            <h3 className="text-lg font-bold text-[#2e1f3b]">Confirm Deletion</h3>
+            <p className="text-sm font-medium text-[#2e1f3b]/80">
+              Are you sure you want to delete <strong className="text-[#2e1f3b] font-bold">"{deleteTarget.name}"</strong>? This action cannot be undone.
             </p>
 
-            <div className="mt-6 flex justify-end gap-3">
+            <div className="flex items-center justify-end gap-3 pt-4 border-t border-[#e9d5ff]">
               <button
                 type="button"
                 onClick={() => setDeleteTarget(null)}
-                disabled={isDeleting}
-                className="rounded-full border border-white/10 bg-white/5 px-5 py-2 text-sm text-white hover:bg-white/10"
+                className="rounded-full border border-[#e9d5ff] bg-white px-4 py-2 text-xs font-bold text-[#2e1f3b] hover:bg-[#fde8f3]"
               >
                 Cancel
               </button>
               <button
                 type="button"
-                onClick={handleDeleteExecute}
                 disabled={isDeleting}
-                className="rounded-full bg-rose-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-rose-500 shadow-lg shadow-rose-600/30 disabled:opacity-50"
+                onClick={handleDeleteExecute}
+                className="rounded-full bg-rose-600 px-5 py-2 text-xs font-bold text-white hover:bg-rose-700 shadow-md disabled:opacity-50"
               >
-                {isDeleting ? 'Deleting...' : 'Yes, Delete Product'}
+                {isDeleting ? 'Deleting...' : 'Delete Product'}
               </button>
             </div>
           </div>

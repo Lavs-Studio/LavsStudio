@@ -64,7 +64,6 @@ export default function HairCare() {
             ))}
           </div>
         )}
-
       </section>
     </Layout>
   );

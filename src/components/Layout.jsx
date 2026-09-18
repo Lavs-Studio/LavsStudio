@@ -62,14 +62,7 @@ export default function Layout({ children }) {
             ))}
           </nav>
 
-          <div className="flex items-center gap-3">
-            <Link
-              to="/admin/login"
-              className="rounded-full border border-[#f472b6]/40 bg-white/90 px-4 py-2 text-xs font-semibold text-[#2e1f3b] transition hover:border-[#f472b6] hover:bg-[#fde8f3]"
-            >
-              Admin Console
-            </Link>
-          </div>
+
         </div>
       </header>
 

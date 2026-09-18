@@ -1,4 +1,7 @@
+import { useEffect, useState } from 'react';
 import MediaPickerModal from '../components/MediaPickerModal';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { DEFAULT_HOMEPAGE_SECTIONS, saveLocalHomepageSections } from '../lib/content';
 
 export default function AdminHomepage() {
   const [sections, setSections] = useState([]);
@@ -26,21 +29,30 @@ export default function AdminHomepage() {
   const fetchSections = async () => {
     setIsLoading(true);
     try {
+      if (!supabase || !isSupabaseConfigured) {
+        const raw = localStorage.getItem('lavsstudio_custom_homepage_sections');
+        const parsed = raw ? JSON.parse(raw) : null;
+        setSections(parsed || DEFAULT_HOMEPAGE_SECTIONS);
+        return;
+      }
+
       const { data, error } = await supabase
         .from('homepage_sections')
         .select('*')
         .order('display_order', { ascending: true });
 
-      if (error) throw error;
-
-      if (!data || data.length === 0) {
-        setSections([]);
+      if (error || !data || data.length === 0) {
+        const raw = localStorage.getItem('lavsstudio_custom_homepage_sections');
+        const parsed = raw ? JSON.parse(raw) : null;
+        setSections(parsed || DEFAULT_HOMEPAGE_SECTIONS);
       } else {
         setSections(data);
       }
     } catch (err) {
       console.error('Error loading homepage sections:', err);
-      showNotification('error', `Failed to load homepage sections: ${err.message}`);
+      const raw = localStorage.getItem('lavsstudio_custom_homepage_sections');
+      const parsed = raw ? JSON.parse(raw) : null;
+      setSections(parsed || DEFAULT_HOMEPAGE_SECTIONS);
     } finally {
       setIsLoading(false);
     }
@@ -50,61 +62,67 @@ export default function AdminHomepage() {
     fetchSections();
   }, []);
 
-  // Initialize/Seed Default Sections into Supabase if empty
   const handleSeedDefaultSections = async () => {
     setIsLoading(true);
     try {
-      const rowsToInsert = DEFAULT_HOMEPAGE_SECTIONS.map((sec) => ({
-        section_title: sec.section_title,
-        subtitle: sec.subtitle,
-        section_type: sec.section_type,
-        display_order: sec.display_order,
-        active: sec.active,
-        configuration_data: sec.configuration_data,
-      }));
+      if (supabase && isSupabaseConfigured) {
+        const rowsToInsert = DEFAULT_HOMEPAGE_SECTIONS.map((sec) => ({
+          section_title: sec.section_title,
+          subtitle: sec.subtitle,
+          section_type: sec.section_type,
+          display_order: sec.display_order,
+          active: sec.active,
+          configuration_data: sec.configuration_data,
+        }));
 
-      const { data, error } = await supabase
-        .from('homepage_sections')
-        .insert(rowsToInsert)
-        .select('*');
+        const { data, error } = await supabase
+          .from('homepage_sections')
+          .insert(rowsToInsert)
+          .select('*');
 
-      if (error) throw error;
+        if (!error && data) {
+          setSections(data);
+          saveLocalHomepageSections(data);
+          showNotification('success', 'Default homepage sections initialized in Supabase!');
+          return;
+        }
+      }
 
-      setSections(data || []);
-      showNotification('success', 'Default homepage sections initialized in Supabase!');
+      setSections(DEFAULT_HOMEPAGE_SECTIONS);
+      saveLocalHomepageSections(DEFAULT_HOMEPAGE_SECTIONS);
+      showNotification('success', 'Homepage sections reset to default!');
     } catch (err) {
       console.error('Error initializing default sections:', err);
-      showNotification('error', `Failed to initialize sections: ${err.message}`);
+      setSections(DEFAULT_HOMEPAGE_SECTIONS);
+      saveLocalHomepageSections(DEFAULT_HOMEPAGE_SECTIONS);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Toggle active status
   const handleToggleActive = async (section) => {
     const newActive = !section.active;
-    try {
-      const { error } = await supabase
-        .from('homepage_sections')
-        .update({ active: newActive })
-        .eq('id', section.id);
+    const updated = sections.map((s) => (s.id === section.id ? { ...s, active: newActive } : s));
+    setSections(updated);
+    saveLocalHomepageSections(updated);
 
-      if (error) throw error;
-
-      setSections((prev) =>
-        prev.map((s) => (s.id === section.id ? { ...s, active: newActive } : s))
-      );
-      showNotification(
-        'success',
-        `Section "${section.section_title}" is now ${newActive ? 'Enabled' : 'Disabled'}.`
-      );
-    } catch (err) {
-      console.error('Error toggling active status:', err);
-      showNotification('error', `Failed to update section: ${err.message}`);
+    if (supabase && isSupabaseConfigured) {
+      try {
+        await supabase
+          .from('homepage_sections')
+          .update({ active: newActive })
+          .eq('id', section.id);
+      } catch (err) {
+        console.warn('Supabase toggle section active error:', err);
+      }
     }
+
+    showNotification(
+      'success',
+      `Section "${section.section_title}" is now ${newActive ? 'Enabled' : 'Disabled'}.`
+    );
   };
 
-  // Reorder Sections (Move Up / Move Down)
   const handleMove = async (index, direction) => {
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
     if (targetIndex < 0 || targetIndex >= sections.length) return;
@@ -113,42 +131,38 @@ export default function AdminHomepage() {
     const itemA = newSections[index];
     const itemB = newSections[targetIndex];
 
-    // Swap display order numbers
     const orderA = itemA.display_order;
     const orderB = itemB.display_order;
 
     itemA.display_order = orderB;
     itemB.display_order = orderA;
 
-    // Swap position in array
     newSections[index] = itemB;
     newSections[targetIndex] = itemA;
 
     setSections(newSections);
+    saveLocalHomepageSections(newSections);
 
-    // Save to Supabase
-    try {
-      const updates = [
-        supabase
-          .from('homepage_sections')
-          .update({ display_order: itemA.display_order })
-          .eq('id', itemA.id),
-        supabase
-          .from('homepage_sections')
-          .update({ display_order: itemB.display_order })
-          .eq('id', itemB.id),
-      ];
-
-      await Promise.all(updates);
-      showNotification('success', 'Section order updated.');
-    } catch (err) {
-      console.error('Error saving reorder:', err);
-      showNotification('error', `Failed to save order: ${err.message}`);
-      fetchSections(); // Revert on failure
+    if (supabase && isSupabaseConfigured) {
+      try {
+        await Promise.all([
+          supabase
+            .from('homepage_sections')
+            .update({ display_order: itemA.display_order })
+            .eq('id', itemA.id),
+          supabase
+            .from('homepage_sections')
+            .update({ display_order: itemB.display_order })
+            .eq('id', itemB.id),
+        ]);
+      } catch (err) {
+        console.warn('Supabase reorder sections error:', err);
+      }
     }
+
+    showNotification('success', 'Section order updated.');
   };
 
-  // Open Edit Form Modal/Drawer
   const handleOpenEdit = (section) => {
     setEditingSection(section);
     setEditFormData({
@@ -168,7 +182,6 @@ export default function AdminHomepage() {
     setHeroImagePreview(section.configuration_data?.hero_image || null);
   };
 
-  // Handle Hero Image File Selection
   const handleHeroFileSelect = (e) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -181,7 +194,6 @@ export default function AdminHomepage() {
     }
   };
 
-  // Upload image to Supabase Storage
   const uploadHeroImage = async (file) => {
     setIsUploadingImage(true);
     try {
@@ -211,7 +223,6 @@ export default function AdminHomepage() {
     }
   };
 
-  // Save Section Form Updates
   const handleSaveSection = async (e) => {
     e.preventDefault();
     if (!editingSection) return;
@@ -224,16 +235,11 @@ export default function AdminHomepage() {
         try {
           finalHeroImage = await uploadHeroImage(heroImageFile);
         } catch (uploadErr) {
-          showNotification(
-            'error',
-            `Hero image upload failed: ${uploadErr.message}. Make sure 'website-images' bucket exists.`
-          );
-          setIsSavingSection(false);
-          return;
+          console.warn('Hero image upload failed, using preview/existing:', uploadErr);
+          if (heroImagePreview) finalHeroImage = heroImagePreview;
         }
       }
 
-      // Build updated configuration_data JSON
       const updatedConfig = {
         ...editingSection.configuration_data,
         description: editFormData.description || undefined,
@@ -253,22 +259,27 @@ export default function AdminHomepage() {
         configuration_data: updatedConfig,
       };
 
-      const { error } = await supabase
-        .from('homepage_sections')
-        .update(payload)
-        .eq('id', editingSection.id);
-
-      if (error) throw error;
-
-      setSections((prev) =>
-        prev.map((s) =>
-          s.id === editingSection.id
-            ? { ...s, ...payload, configuration_data: updatedConfig }
-            : s
-        )
+      const updatedSections = sections.map((s) =>
+        s.id === editingSection.id
+          ? { ...s, ...payload, configuration_data: updatedConfig }
+          : s
       );
 
-      showNotification('success', 'Section configuration saved to Supabase!');
+      setSections(updatedSections);
+      saveLocalHomepageSections(updatedSections);
+
+      if (supabase && isSupabaseConfigured) {
+        try {
+          await supabase
+            .from('homepage_sections')
+            .update(payload)
+            .eq('id', editingSection.id);
+        } catch (dbErr) {
+          console.warn('Supabase section update error:', dbErr);
+        }
+      }
+
+      showNotification('success', 'Homepage section saved and updated live!');
       setEditingSection(null);
     } catch (err) {
       console.error('Error saving section:', err);
@@ -283,7 +294,7 @@ export default function AdminHomepage() {
       {/* Toast Notification */}
       {notification && (
         <div
-          className={`fixed top-5 right-5 z-50 flex items-center gap-3 rounded-2xl px-5 py-4 shadow-2xl backdrop-blur-xl border transition-all animate-bounce ${
+          className={`fixed top-5 right-5 z-50 flex items-center gap-3 rounded-2xl px-5 py-4 shadow-2xl backdrop-blur-xl border transition-all ${
             notification.type === 'success'
               ? 'bg-emerald-950/90 border-emerald-500/30 text-emerald-200'
               : 'bg-rose-950/90 border-rose-500/30 text-rose-200'
@@ -297,13 +308,13 @@ export default function AdminHomepage() {
       )}
 
       {/* Header */}
-      <div className="flex flex-col gap-4 border-b border-white/10 pb-6 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-4 border-b border-[#e9d5ff]/80 pb-6 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.35em] text-[#e2a4a4]">
+          <p className="text-xs font-semibold uppercase tracking-[0.35em] text-[#ec4899]">
             Layout & Content
           </p>
-          <h2 className="mt-1 text-3xl font-semibold">Homepage Management</h2>
-          <p className="mt-1 text-sm text-white/60">
+          <h2 className="mt-1 text-3xl font-bold text-[#2e1f3b]">Homepage Management</h2>
+          <p className="mt-1 text-sm font-medium text-[#2e1f3b]/70">
             Customize hero banners, section order, visibility, titles, and layout without changing code.
           </p>
         </div>
@@ -311,7 +322,7 @@ export default function AdminHomepage() {
         {sections.length === 0 && !isLoading && (
           <button
             onClick={handleSeedDefaultSections}
-            className="rounded-full bg-[#e2a4a4] px-5 py-2.5 text-sm font-semibold text-[#130d11] transition hover:bg-[#efb3b3] shadow-lg shadow-[#e2a4a4]/20"
+            className="rounded-full bg-gradient-to-r from-[#f472b6] to-[#c084fc] px-5 py-2.5 text-sm font-bold text-white shadow-md transition hover:opacity-95"
           >
             + Initialize Default Sections
           </button>
@@ -320,26 +331,26 @@ export default function AdminHomepage() {
 
       {/* Content Area */}
       {isLoading ? (
-        <div className="rounded-[28px] border border-white/10 bg-white/5 p-12 text-center text-white/60 animate-pulse">
+        <div className="rounded-[28px] border border-[#e9d5ff] bg-white/70 p-12 text-center text-[#2e1f3b]/70 animate-pulse">
           Loading homepage section layout...
         </div>
       ) : sections.length === 0 ? (
-        <div className="rounded-[28px] border border-white/10 bg-white/5 p-12 text-center">
-          <p className="text-lg font-medium text-white/80">No homepage sections found</p>
-          <p className="mt-2 text-sm text-white/50 max-w-md mx-auto">
-            Click below to load the default homepage sections into your Supabase database. You can then edit, reorder, or toggle any section!
+        <div className="rounded-[28px] border border-[#e9d5ff] bg-white/80 p-12 text-center shadow-sm">
+          <p className="text-lg font-bold text-[#2e1f3b]">No homepage sections found</p>
+          <p className="mt-2 text-sm text-[#2e1f3b]/70 max-w-md mx-auto">
+            Click below to load the default homepage sections into your database. You can then edit, reorder, or toggle any section!
           </p>
           <button
             onClick={handleSeedDefaultSections}
-            className="mt-6 rounded-full bg-[#e2a4a4] px-6 py-2.5 text-sm font-semibold text-[#130d11] transition hover:bg-[#efb3b3]"
+            className="mt-6 rounded-full bg-gradient-to-r from-[#f472b6] to-[#c084fc] px-6 py-2.5 text-sm font-bold text-white shadow-md hover:opacity-95"
           >
             Initialize Default Homepage Sections
           </button>
         </div>
       ) : (
         <div className="space-y-4">
-          <p className="text-xs text-white/50 px-1">
-            Use the <strong className="text-white">Up / Down</strong> buttons to reorder sections on the live website. Use the <strong className="text-white">Enable/Disable</strong> switch to show or hide a section.
+          <p className="text-xs font-medium text-[#2e1f3b]/70 px-1">
+            Use the <strong className="text-[#2e1f3b] font-bold">Up / Down</strong> buttons to reorder sections on the live website. Use the <strong className="text-[#2e1f3b] font-bold">Enable/Disable</strong> switch to show or hide a section.
           </p>
 
           <div className="space-y-3">
@@ -348,8 +359,8 @@ export default function AdminHomepage() {
                 key={section.id}
                 className={`flex flex-col gap-4 rounded-[24px] border p-5 transition sm:flex-row sm:items-center sm:justify-between ${
                   section.active
-                    ? 'border-white/15 bg-white/5'
-                    : 'border-white/5 bg-black/40 opacity-60'
+                    ? 'border-[#e9d5ff] bg-white shadow-sm'
+                    : 'border-gray-200 bg-gray-50/80 opacity-60'
                 }`}
               >
                 {/* Left info */}
@@ -361,11 +372,11 @@ export default function AdminHomepage() {
                       disabled={idx === 0}
                       onClick={() => handleMove(idx, 'up')}
                       title="Move Up"
-                      className="rounded-md border border-white/10 p-1 text-xs text-white hover:bg-white/10 disabled:opacity-30 disabled:hover:bg-transparent"
+                      className="rounded-md border border-[#e9d5ff] bg-white p-1 text-xs text-[#2e1f3b] hover:bg-[#f3e8ff] disabled:opacity-30 disabled:hover:bg-transparent"
                     >
                       ▲
                     </button>
-                    <span className="text-xs font-mono font-semibold text-[#e2a4a4]">
+                    <span className="text-xs font-mono font-bold text-[#ec4899]">
                       #{idx + 1}
                     </span>
                     <button
@@ -373,7 +384,7 @@ export default function AdminHomepage() {
                       disabled={idx === sections.length - 1}
                       onClick={() => handleMove(idx, 'down')}
                       title="Move Down"
-                      className="rounded-md border border-white/10 p-1 text-xs text-white hover:bg-white/10 disabled:opacity-30 disabled:hover:bg-transparent"
+                      className="rounded-md border border-[#e9d5ff] bg-white p-1 text-xs text-[#2e1f3b] hover:bg-[#f3e8ff] disabled:opacity-30 disabled:hover:bg-transparent"
                     >
                       ▼
                     </button>
@@ -381,15 +392,15 @@ export default function AdminHomepage() {
 
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="rounded-full bg-[#e2a4a4]/20 border border-[#e2a4a4]/30 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#e2a4a4]">
+                      <span className="rounded-full bg-[#fde8f3] border border-[#f472b6]/30 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#ec4899]">
                         {section.section_type}
                       </span>
-                      <h4 className="truncate text-base font-semibold text-white">
+                      <h4 className="truncate text-base font-bold text-[#2e1f3b]">
                         {section.section_title}
                       </h4>
                     </div>
                     {section.subtitle && (
-                      <p className="mt-1 truncate text-xs text-white/60">
+                      <p className="mt-1 truncate text-xs font-medium text-[#2e1f3b]/70">
                         Subtitle: {section.subtitle}
                       </p>
                     )}
@@ -402,15 +413,15 @@ export default function AdminHomepage() {
                   <button
                     type="button"
                     onClick={() => handleToggleActive(section)}
-                    className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                    className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold transition ${
                       section.active
-                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                        : 'bg-white/10 text-white/50 border border-white/10'
+                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                        : 'bg-gray-100 text-gray-600 border border-gray-300'
                     }`}
                   >
                     <span
                       className={`h-2 w-2 rounded-full ${
-                        section.active ? 'bg-emerald-400' : 'bg-white/30'
+                        section.active ? 'bg-emerald-500' : 'bg-gray-400'
                       }`}
                     />
                     {section.active ? 'Enabled' : 'Disabled'}
@@ -420,7 +431,7 @@ export default function AdminHomepage() {
                   <button
                     type="button"
                     onClick={() => handleOpenEdit(section)}
-                    className="rounded-xl border border-white/10 bg-white/5 px-4 py-1.5 text-xs font-medium text-white transition hover:border-[#e2a4a4] hover:bg-[#e2a4a4]/10 hover:text-[#e2a4a4]"
+                    className="rounded-xl border border-[#f472b6]/40 bg-[#fde8f3] px-4 py-1.5 text-xs font-bold text-[#2e1f3b] transition hover:bg-[#f472b6] hover:text-white"
                   >
                     Edit Section
                   </button>
@@ -433,20 +444,20 @@ export default function AdminHomepage() {
 
       {/* Edit Section Modal */}
       {editingSection && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="my-8 w-full max-w-2xl rounded-[32px] border border-white/15 bg-[#181116] p-6 shadow-2xl space-y-6">
-            <div className="flex items-center justify-between border-b border-white/10 pb-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="my-8 w-full max-w-2xl rounded-[32px] border border-[#e9d5ff] bg-white p-6 shadow-2xl space-y-6 text-[#2e1f3b]">
+            <div className="flex items-center justify-between border-b border-[#e9d5ff] pb-4">
               <div>
-                <span className="rounded-full bg-[#e2a4a4]/20 border border-[#e2a4a4]/30 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#e2a4a4]">
+                <span className="rounded-full bg-[#fde8f3] border border-[#f472b6]/30 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#ec4899]">
                   {editingSection.section_type}
                 </span>
-                <h3 className="mt-1 text-xl font-semibold text-white">
+                <h3 className="mt-1 text-xl font-bold text-[#2e1f3b]">
                   Edit Section Settings
                 </h3>
               </div>
               <button
                 onClick={() => setEditingSection(null)}
-                className="text-white/50 hover:text-white text-lg"
+                className="text-[#2e1f3b]/60 hover:text-[#2e1f3b] text-xl font-bold"
               >
                 ✕
               </button>
@@ -455,8 +466,8 @@ export default function AdminHomepage() {
             <form onSubmit={handleSaveSection} className="space-y-5">
               {/* Common Fields: Title & Subtitle */}
               <div>
-                <label className="block text-xs font-medium uppercase tracking-wider text-white/70 mb-1.5">
-                  Section Title <span className="text-rose-400">*</span>
+                <label className="block text-xs font-bold uppercase tracking-wider text-[#2e1f3b] mb-1.5">
+                  Section Title <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
@@ -465,12 +476,12 @@ export default function AdminHomepage() {
                   onChange={(e) =>
                     setEditFormData((prev) => ({ ...prev, section_title: e.target.value }))
                   }
-                  className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-2.5 text-sm text-white focus:border-[#e2a4a4] focus:outline-none"
+                  className="w-full rounded-xl border border-[#e9d5ff] bg-[#faf4fb] px-4 py-2.5 text-sm font-semibold text-[#2e1f3b] focus:border-[#f472b6] focus:outline-none"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium uppercase tracking-wider text-white/70 mb-1.5">
+                <label className="block text-xs font-bold uppercase tracking-wider text-[#2e1f3b] mb-1.5">
                   Eyebrow / Subtitle
                 </label>
                 <input
@@ -479,7 +490,7 @@ export default function AdminHomepage() {
                   onChange={(e) =>
                     setEditFormData((prev) => ({ ...prev, subtitle: e.target.value }))
                   }
-                  className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-2.5 text-sm text-white focus:border-[#e2a4a4] focus:outline-none"
+                  className="w-full rounded-xl border border-[#e9d5ff] bg-[#faf4fb] px-4 py-2.5 text-sm font-semibold text-[#2e1f3b] focus:border-[#f472b6] focus:outline-none"
                 />
               </div>
 
@@ -487,7 +498,7 @@ export default function AdminHomepage() {
               {editingSection.section_type === 'hero' && (
                 <>
                   <div>
-                    <label className="block text-xs font-medium uppercase tracking-wider text-white/70 mb-1.5">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-[#2e1f3b] mb-1.5">
                       Hero Description Paragraph
                     </label>
                     <textarea
@@ -496,7 +507,7 @@ export default function AdminHomepage() {
                       onChange={(e) =>
                         setEditFormData((prev) => ({ ...prev, description: e.target.value }))
                       }
-                      className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-2.5 text-sm text-white focus:border-[#e2a4a4] focus:outline-none"
+                      className="w-full rounded-xl border border-[#e9d5ff] bg-[#faf4fb] px-4 py-2.5 text-sm font-semibold text-[#2e1f3b] focus:border-[#f472b6] focus:outline-none"
                     />
                   </div>
 
@@ -504,13 +515,13 @@ export default function AdminHomepage() {
                   <div className="grid gap-4 md:grid-cols-[1fr_120px] items-center">
                     <div>
                       <div className="flex items-center justify-between mb-1.5">
-                        <label className="block text-xs font-medium uppercase tracking-wider text-white/70">
+                        <label className="block text-xs font-bold uppercase tracking-wider text-[#2e1f3b]">
                           Hero Image
                         </label>
                         <button
                           type="button"
                           onClick={() => setIsMediaPickerOpen(true)}
-                          className="text-[11px] font-semibold text-[#e2a4a4] hover:underline"
+                          className="text-[11px] font-bold text-[#ec4899] hover:underline"
                         >
                           📷 Pick from Library
                         </button>
@@ -519,7 +530,7 @@ export default function AdminHomepage() {
                         type="file"
                         accept="image/*"
                         onChange={handleHeroFileSelect}
-                        className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-xs text-white file:mr-3 file:rounded-lg file:border-0 file:bg-[#e2a4a4] file:px-3 file:py-1 file:text-xs file:font-semibold file:text-[#130d11]"
+                        className="w-full rounded-xl border border-[#e9d5ff] bg-[#faf4fb] px-3 py-2 text-xs font-semibold text-[#2e1f3b] file:mr-3 file:rounded-lg file:border-0 file:bg-[#fde8f3] file:px-3 file:py-1 file:text-xs file:font-bold file:text-[#ec4899]"
                       />
                       <input
                         type="text"
@@ -529,11 +540,11 @@ export default function AdminHomepage() {
                           setEditFormData((prev) => ({ ...prev, hero_image: e.target.value }));
                           setHeroImagePreview(e.target.value);
                         }}
-                        className="mt-2 w-full rounded-xl border border-white/10 bg-black/40 px-4 py-2 text-xs text-white focus:border-[#e2a4a4] focus:outline-none"
+                        className="mt-2 w-full rounded-xl border border-[#e9d5ff] bg-[#faf4fb] px-4 py-2 text-xs font-semibold text-[#2e1f3b] focus:border-[#f472b6] focus:outline-none"
                       />
                     </div>
 
-                    <div className="h-24 w-24 overflow-hidden rounded-xl border border-white/10 bg-white/5 flex items-center justify-center">
+                    <div className="h-24 w-24 overflow-hidden rounded-xl border border-[#e9d5ff] bg-[#fde8f3]/30 flex items-center justify-center">
                       {heroImagePreview ? (
                         <img
                           src={heroImagePreview}
@@ -541,7 +552,7 @@ export default function AdminHomepage() {
                           className="h-full w-full object-cover"
                         />
                       ) : (
-                        <span className="text-[10px] text-white/30">No Image</span>
+                        <span className="text-[10px] text-[#2e1f3b]/40 font-bold">No Image</span>
                       )}
                     </div>
                   </div>
@@ -549,7 +560,7 @@ export default function AdminHomepage() {
                   {/* Button 1 & Button 2 */}
                   <div className="grid gap-4 md:grid-cols-2">
                     <div>
-                      <label className="block text-xs font-medium uppercase tracking-wider text-white/70 mb-1.5">
+                      <label className="block text-xs font-bold uppercase tracking-wider text-[#2e1f3b] mb-1.5">
                         Primary Button Text
                       </label>
                       <input
@@ -558,11 +569,11 @@ export default function AdminHomepage() {
                         onChange={(e) =>
                           setEditFormData((prev) => ({ ...prev, btn_primary_text: e.target.value }))
                         }
-                        className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-2 text-sm text-white focus:border-[#e2a4a4] focus:outline-none"
+                        className="w-full rounded-xl border border-[#e9d5ff] bg-[#faf4fb] px-4 py-2 text-sm font-semibold text-[#2e1f3b] focus:border-[#f472b6] focus:outline-none"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium uppercase tracking-wider text-white/70 mb-1.5">
+                      <label className="block text-xs font-bold uppercase tracking-wider text-[#2e1f3b] mb-1.5">
                         Primary Button URL
                       </label>
                       <input
@@ -571,14 +582,14 @@ export default function AdminHomepage() {
                         onChange={(e) =>
                           setEditFormData((prev) => ({ ...prev, btn_primary_url: e.target.value }))
                         }
-                        className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-2 text-sm text-white focus:border-[#e2a4a4] focus:outline-none"
+                        className="w-full rounded-xl border border-[#e9d5ff] bg-[#faf4fb] px-4 py-2 text-sm font-semibold text-[#2e1f3b] focus:border-[#f472b6] focus:outline-none"
                       />
                     </div>
                   </div>
 
                   <div className="grid gap-4 md:grid-cols-2">
                     <div>
-                      <label className="block text-xs font-medium uppercase tracking-wider text-white/70 mb-1.5">
+                      <label className="block text-xs font-bold uppercase tracking-wider text-[#2e1f3b] mb-1.5">
                         Secondary Button Text
                       </label>
                       <input
@@ -587,11 +598,11 @@ export default function AdminHomepage() {
                         onChange={(e) =>
                           setEditFormData((prev) => ({ ...prev, btn_secondary_text: e.target.value }))
                         }
-                        className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-2 text-sm text-white focus:border-[#e2a4a4] focus:outline-none"
+                        className="w-full rounded-xl border border-[#e9d5ff] bg-[#faf4fb] px-4 py-2 text-sm font-semibold text-[#2e1f3b] focus:border-[#f472b6] focus:outline-none"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium uppercase tracking-wider text-white/70 mb-1.5">
+                      <label className="block text-xs font-bold uppercase tracking-wider text-[#2e1f3b] mb-1.5">
                         Secondary Button URL
                       </label>
                       <input
@@ -600,7 +611,7 @@ export default function AdminHomepage() {
                         onChange={(e) =>
                           setEditFormData((prev) => ({ ...prev, btn_secondary_url: e.target.value }))
                         }
-                        className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-2 text-sm text-white focus:border-[#e2a4a4] focus:outline-none"
+                        className="w-full rounded-xl border border-[#e9d5ff] bg-[#faf4fb] px-4 py-2 text-sm font-semibold text-[#2e1f3b] focus:border-[#f472b6] focus:outline-none"
                       />
                     </div>
                   </div>
@@ -611,7 +622,7 @@ export default function AdminHomepage() {
               {(editingSection.section_type === 'featured_products' ||
                 editingSection.section_type === 'blog') && (
                 <div>
-                  <label className="block text-xs font-medium uppercase tracking-wider text-white/70 mb-1.5">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-[#2e1f3b] mb-1.5">
                     Items to Display
                   </label>
                   <input
@@ -622,7 +633,7 @@ export default function AdminHomepage() {
                     onChange={(e) =>
                       setEditFormData((prev) => ({ ...prev, limit: e.target.value }))
                     }
-                    className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-2.5 text-sm text-white focus:border-[#e2a4a4] focus:outline-none"
+                    className="w-full rounded-xl border border-[#e9d5ff] bg-[#faf4fb] px-4 py-2.5 text-sm font-semibold text-[#2e1f3b] focus:border-[#f472b6] focus:outline-none"
                   />
                 </div>
               )}
@@ -631,7 +642,7 @@ export default function AdminHomepage() {
               {editingSection.section_type === 'newsletter' && (
                 <>
                   <div>
-                    <label className="block text-xs font-medium uppercase tracking-wider text-white/70 mb-1.5">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-[#2e1f3b] mb-1.5">
                       Description Paragraph
                     </label>
                     <textarea
@@ -640,13 +651,13 @@ export default function AdminHomepage() {
                       onChange={(e) =>
                         setEditFormData((prev) => ({ ...prev, description: e.target.value }))
                       }
-                      className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-2.5 text-sm text-white focus:border-[#e2a4a4] focus:outline-none"
+                      className="w-full rounded-xl border border-[#e9d5ff] bg-[#faf4fb] px-4 py-2.5 text-sm font-semibold text-[#2e1f3b] focus:border-[#f472b6] focus:outline-none"
                     />
                   </div>
 
                   <div className="grid gap-4 md:grid-cols-2">
                     <div>
-                      <label className="block text-xs font-medium uppercase tracking-wider text-white/70 mb-1.5">
+                      <label className="block text-xs font-bold uppercase tracking-wider text-[#2e1f3b] mb-1.5">
                         Button Label
                       </label>
                       <input
@@ -655,11 +666,11 @@ export default function AdminHomepage() {
                         onChange={(e) =>
                           setEditFormData((prev) => ({ ...prev, button_text: e.target.value }))
                         }
-                        className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-2 text-sm text-white focus:border-[#e2a4a4] focus:outline-none"
+                        className="w-full rounded-xl border border-[#e9d5ff] bg-[#faf4fb] px-4 py-2 text-sm font-semibold text-[#2e1f3b] focus:border-[#f472b6] focus:outline-none"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium uppercase tracking-wider text-white/70 mb-1.5">
+                      <label className="block text-xs font-bold uppercase tracking-wider text-[#2e1f3b] mb-1.5">
                         Input Placeholder
                       </label>
                       <input
@@ -668,7 +679,7 @@ export default function AdminHomepage() {
                         onChange={(e) =>
                           setEditFormData((prev) => ({ ...prev, placeholder: e.target.value }))
                         }
-                        className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-2 text-sm text-white focus:border-[#e2a4a4] focus:outline-none"
+                        className="w-full rounded-xl border border-[#e9d5ff] bg-[#faf4fb] px-4 py-2 text-sm font-semibold text-[#2e1f3b] focus:border-[#f472b6] focus:outline-none"
                       />
                     </div>
                   </div>
@@ -676,18 +687,18 @@ export default function AdminHomepage() {
               )}
 
               {/* Action Buttons */}
-              <div className="flex items-center justify-end gap-3 border-t border-white/10 pt-4">
+              <div className="flex items-center justify-end gap-3 border-t border-[#e9d5ff] pt-4">
                 <button
                   type="button"
                   onClick={() => setEditingSection(null)}
-                  className="rounded-full border border-white/10 bg-white/5 px-5 py-2 text-sm text-white hover:bg-white/10"
+                  className="rounded-full border border-[#e9d5ff] bg-white px-5 py-2 text-sm font-bold text-[#2e1f3b] hover:bg-[#fde8f3]"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSavingSection || isUploadingImage}
-                  className="rounded-full bg-[#e2a4a4] px-6 py-2 text-sm font-semibold text-[#130d11] transition hover:bg-[#efb3b3] disabled:opacity-50"
+                  className="rounded-full bg-gradient-to-r from-[#f472b6] to-[#c084fc] px-6 py-2 text-sm font-bold text-white shadow-md hover:opacity-95 disabled:opacity-50"
                 >
                   {isSavingSection
                     ? 'Saving...'

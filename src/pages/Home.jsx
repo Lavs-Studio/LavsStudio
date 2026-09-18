@@ -169,7 +169,7 @@ export default function Home() {
         );
 
       case 'featured_products': {
-        const limit = config.limit || 3;
+        const limit = config.limit || 6;
         return (
           <section key={sec.id || 'featured'} className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
             <SectionTitle

@@ -179,9 +179,122 @@ function normalizeCategory(row) {
   };
 }
 
+const LOCAL_PRODUCTS_KEY = 'lavsstudio_custom_products';
+const DELETED_PRODUCTS_KEY = 'lavsstudio_deleted_product_ids';
+
+export function getDeletedProductIds() {
+  try {
+    const raw = localStorage.getItem(DELETED_PRODUCTS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch (err) {
+    return [];
+  }
+}
+
+export function getLocalProducts() {
+  try {
+    const raw = localStorage.getItem(LOCAL_PRODUCTS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch (err) {
+    return [];
+  }
+}
+
+export function saveLocalProduct(productData) {
+  try {
+    const existing = getLocalProducts();
+    const prodId = productData.id || `custom-${Date.now()}`;
+    const normalized = normalizeProduct({ ...productData, id: prodId });
+    
+    const index = existing.findIndex((p) => String(p.id) === String(prodId));
+    let updated;
+    if (index >= 0) {
+      existing[index] = { ...existing[index], ...normalized };
+      updated = existing;
+    } else {
+      updated = [normalized, ...existing];
+    }
+    localStorage.setItem(LOCAL_PRODUCTS_KEY, JSON.stringify(updated));
+    return normalized;
+  } catch (err) {
+    console.error('saveLocalProduct error:', err);
+    return productData;
+  }
+}
+
+export function deleteLocalProduct(id) {
+  try {
+    const existing = getLocalProducts();
+    const updated = existing.filter((p) => String(p.id) !== String(id));
+    localStorage.setItem(LOCAL_PRODUCTS_KEY, JSON.stringify(updated));
+
+    const deletedIds = getDeletedProductIds();
+    if (!deletedIds.includes(String(id))) {
+      deletedIds.push(String(id));
+      localStorage.setItem(DELETED_PRODUCTS_KEY, JSON.stringify(deletedIds));
+    }
+  } catch (err) {
+    console.error('deleteLocalProduct error:', err);
+  }
+}
+
+export async function deleteProduct(id) {
+  if (supabase && isSupabaseConfigured) {
+    try {
+      await supabase.from('products').delete().eq('id', id);
+    } catch (err) {
+      console.warn('Supabase delete product error:', err);
+    }
+  }
+  deleteLocalProduct(id);
+}
+
+export async function saveProduct(productPayload) {
+  let dbResult = null;
+  if (supabase && isSupabaseConfigured) {
+    try {
+      if (productPayload.id && typeof productPayload.id === 'string' && productPayload.id.includes('-') && !productPayload.id.startsWith('custom-')) {
+        const { data, error } = await supabase
+          .from('products')
+          .update(productPayload)
+          .eq('id', productPayload.id)
+          .select('*');
+        if (!error && data && data.length > 0) dbResult = data[0];
+      } else {
+        const { data, error } = await supabase
+          .from('products')
+          .upsert([productPayload])
+          .select('*');
+        if (!error && data && data.length > 0) dbResult = data[0];
+      }
+    } catch (err) {
+      console.warn('Supabase save failed, storing locally:', err);
+    }
+  }
+  
+  const saved = saveLocalProduct({
+    ...productPayload,
+    ...(dbResult ? { id: dbResult.id } : {}),
+  });
+
+  return saved;
+}
+
 export async function fetchPublishedProducts() {
+  const localProducts = getLocalProducts();
+  const deletedIds = getDeletedProductIds();
+
+  const filterDeleted = (list) => list.filter((p) => !deletedIds.includes(String(p.id)));
+
   if (!supabase || !isSupabaseConfigured) {
-    return fallbackProducts;
+    const merged = [...localProducts];
+    fallbackProducts.forEach((fp) => {
+      const normFp = normalizeProduct(fp);
+      if (!merged.some((p) => String(p.id) === String(normFp.id))) {
+        merged.push(normFp);
+      }
+    });
+    return filterDeleted(merged);
   }
 
   try {
@@ -193,17 +306,39 @@ export async function fetchPublishedProducts() {
 
     if (error || !Array.isArray(data)) {
       console.warn('Supabase products fetch failed, using fallbacks:', error);
-      return fallbackProducts;
+      const merged = [...localProducts];
+      fallbackProducts.forEach((fp) => {
+        const normFp = normalizeProduct(fp);
+        if (!merged.some((p) => String(p.id) === String(normFp.id))) {
+          merged.push(normFp);
+        }
+      });
+      return filterDeleted(merged);
     }
 
-    if (data.length === 0) {
-      return []; // Return empty array if DB has no published products so UI can show empty state!
+    const remoteProducts = data.map(normalizeProduct);
+    const merged = [...localProducts];
+    remoteProducts.forEach((rp) => {
+      if (!merged.some((p) => String(p.id) === String(rp.id))) {
+        merged.push(rp);
+      }
+    });
+
+    if (merged.length === 0) {
+      return filterDeleted(fallbackProducts.map(normalizeProduct));
     }
 
-    return data.map(normalizeProduct);
+    return filterDeleted(merged);
   } catch (err) {
     console.error('fetchPublishedProducts error:', err);
-    return fallbackProducts;
+    const merged = [...localProducts];
+    fallbackProducts.forEach((fp) => {
+      const normFp = normalizeProduct(fp);
+      if (!merged.some((p) => String(p.id) === String(normFp.id))) {
+        merged.push(normFp);
+      }
+    });
+    return filterDeleted(merged);
   }
 }
 
@@ -235,14 +370,59 @@ export async function fetchPublishedBlogPosts() {
   }
 }
 
+export const LOCAL_CATEGORIES_KEY = 'lavsstudio_custom_categories';
+export const LOCAL_HOMEPAGE_SECTIONS_KEY = 'lavsstudio_custom_homepage_sections';
+
+export function getLocalCategories() {
+  try {
+    const raw = localStorage.getItem(LOCAL_CATEGORIES_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+export function saveLocalCategories(categories) {
+  try {
+    localStorage.setItem(LOCAL_CATEGORIES_KEY, JSON.stringify(categories));
+  } catch (err) {
+    console.error('saveLocalCategories error:', err);
+  }
+}
+
+export function getLocalHomepageSections() {
+  try {
+    const raw = localStorage.getItem(LOCAL_HOMEPAGE_SECTIONS_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+export function saveLocalHomepageSections(sections) {
+  try {
+    localStorage.setItem(LOCAL_HOMEPAGE_SECTIONS_KEY, JSON.stringify(sections));
+  } catch (err) {
+    console.error('saveLocalHomepageSections error:', err);
+  }
+}
+
 export async function fetchPublishedCategories() {
+  const localCats = getLocalCategories();
+  if (localCats && Array.isArray(localCats) && localCats.length > 0) {
+    return localCats.filter((c) => c.active !== false).map(normalizeCategory);
+  }
+
+  const fallbackCats = fallbackBlogCategories.map((name) => ({
+    id: name.toLowerCase().replace(/\s+/g, '-'),
+    name,
+    slug: name.toLowerCase().replace(/\s+/g, '-'),
+    to: `/${name.toLowerCase().replace(/\s+/g, '-')}`,
+    active: true,
+  }));
+
   if (!supabase || !isSupabaseConfigured) {
-    return fallbackBlogCategories.map((name) => ({
-      id: name.toLowerCase().replace(/\s+/g, '-'),
-      name,
-      slug: name.toLowerCase().replace(/\s+/g, '-'),
-      to: `/${name.toLowerCase().replace(/\s+/g, '-')}`,
-    }));
+    return fallbackCats;
   }
 
   try {
@@ -252,15 +432,14 @@ export async function fetchPublishedCategories() {
       .eq('active', true)
       .order('display_order', { ascending: true });
 
-    if (error || !Array.isArray(data)) {
-      console.warn('Supabase categories fetch failed:', error);
-      return [];
+    if (error || !Array.isArray(data) || data.length === 0) {
+      return fallbackCats;
     }
 
     return data.map(normalizeCategory);
   } catch (err) {
     console.error('fetchPublishedCategories error:', err);
-    return [];
+    return fallbackCats;
   }
 }
 
@@ -321,6 +500,11 @@ export async function fetchSiteSettings() {
 }
 
 export async function fetchPublishedHomepageSections() {
+  const localSections = getLocalHomepageSections();
+  if (localSections && Array.isArray(localSections) && localSections.length > 0) {
+    return localSections.filter((s) => s.active !== false);
+  }
+
   if (!supabase || !isSupabaseConfigured) {
     return DEFAULT_HOMEPAGE_SECTIONS;
   }

@@ -63,7 +63,6 @@ export default function Fashion() {
             ))}
           </div>
         )}
-
       </section>
     </Layout>
   );
