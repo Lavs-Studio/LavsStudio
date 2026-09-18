@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useAdminAuth } from '../admin/AdminAuthProvider';
+import { isSupabaseConfigured } from '../lib/supabase';
 
 export default function AdminLogin() {
   const navigate = useNavigate();
@@ -58,8 +59,19 @@ export default function AdminLogin() {
             <div className="mb-8">
               <p className="text-xs font-semibold uppercase tracking-[0.35em] text-[#ec4899]">Admin Login</p>
               <h2 className="mt-3 text-3xl font-bold text-[#2e1f3b]">Welcome back</h2>
-              <p className="mt-2 text-sm text-[#2e1f3b]/70">Use your Supabase Auth email and password to enter the console.</p>
+              <p className="mt-2 text-sm text-[#2e1f3b]/70">Use your email and password to enter the console.</p>
             </div>
+
+            {!isSupabaseConfigured && (
+              <div className="mb-6 rounded-2xl border border-purple-200 bg-purple-50/80 p-4 text-xs text-purple-900 shadow-sm">
+                <p className="font-semibold text-purple-950 mb-1 flex items-center gap-1.5">
+                  <span className="inline-block rounded-full bg-purple-200 p-1 text-[#ec4899]">⚡</span> Local Admin Mode Active (GitHub Pages)
+                </p>
+                <p className="leading-relaxed text-purple-900/80">
+                  You are viewing the static GitHub Pages deployment. You can sign in with any email & password to manage products, categories, and home page content.
+                </p>
+              </div>
+            )}
 
             {(formError || authError) && (
               <div className="mb-6 rounded-2xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-700">
